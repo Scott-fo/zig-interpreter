@@ -2,13 +2,13 @@ const std = @import("std");
 const token = @import("token.zig");
 const TokenType = token.TokenType;
 
-const Lexer = struct {
+pub const Lexer = struct {
     input: []const u8,
     position: usize,
     read_position: usize,
     ch: u8,
 
-    fn init(i: []const u8) Lexer {
+    pub fn init(i: []const u8) Lexer {
         var l = Lexer{
             .input = i,
             .position = 0,
@@ -20,18 +20,7 @@ const Lexer = struct {
         return l;
     }
 
-    fn read_char(self: *Lexer) void {
-        if (self.read_position >= self.input.len) {
-            self.ch = 0;
-        } else {
-            self.ch = self.input[self.read_position];
-        }
-
-        self.position = self.read_position;
-        self.read_position += 1;
-    }
-
-    fn next_token(self: *Lexer) token.Token {
+    pub fn next_token(self: *Lexer) token.Token {
         self.skip_whitespace();
 
         const tok = switch (self.ch) {
@@ -78,6 +67,17 @@ const Lexer = struct {
 
         self.read_char();
         return tok;
+    }
+
+    fn read_char(self: *Lexer) void {
+        if (self.read_position >= self.input.len) {
+            self.ch = 0;
+        } else {
+            self.ch = self.input[self.read_position];
+        }
+
+        self.position = self.read_position;
+        self.read_position += 1;
     }
 
     fn new_token(token_type: token.TokenType, ch: []const u8) token.Token {
