@@ -4,6 +4,7 @@ const repl = @import("lib/repl.zig");
 test {
     _ = @import("lib/token.zig");
     _ = @import("lib/lexer.zig");
+    _ = @import("lib/parser.zig");
 }
 
 pub fn main() !void {
