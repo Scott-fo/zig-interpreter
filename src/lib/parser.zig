@@ -121,9 +121,9 @@ const Parser = struct {
 
 test "let statement" {
     const input =
-        \\let x 5;
-        \\let = 10;
-        \\let 838383;
+        \\let x = 5;
+        \\let y = 10;
+        \\let foobar = 838383;
     ;
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
