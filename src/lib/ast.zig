@@ -1,136 +1,112 @@
 const token = @import("token.zig");
 const std = @import("std");
 
-const Node = struct {
-    tokenLiteralFn: *const fn (self: *Node) []const u8,
-
-    pub fn token_literal(self: *Node) []const u8 {
-        return self.tokenLiteralFn(self);
-    }
-};
-
-pub const Statement = struct {
-    node: Node,
-    statementNodeFn: *const fn (self: *Statement) void,
-
-    pub fn statement_node(self: *Statement) void {
-        return self.statementNodeFn(self);
-    }
-};
-
-pub const Expression = struct {
-    node: Node,
-    expressionNodeFn: *const fn (self: *Expression) void,
-
-    pub fn expression_node(self: *Expression) void {
-        return self.expressionNodeFn(self);
-    }
-};
-
 pub const Program = struct {
-    statements: std.ArrayList(*Statement),
-    allocator: std.mem.Allocator,
+    statements: std.ArrayList(Statement),
 
     pub fn init(allocator: std.mem.Allocator) Program {
         return .{
-            .statements = std.ArrayList(*Statement).init(allocator),
-            .allocator = allocator,
+            .statements = std.ArrayList(Statement).init(allocator),
         };
     }
 
-    pub fn deinit(self: *Program) void {
-        for (self.statements.items) |stmt| {
-            const let_stmt: *LetStatement = @fieldParentPtr("statement", stmt);
-            let_stmt.deinit(self.allocator);
+    pub fn deinit(self: *Program, allocator: std.mem.Allocator) void {
+        for (self.statements.items) |*stmt| {
+            stmt.deinit(allocator);
         }
         self.statements.deinit();
     }
 
-    pub fn token_literal(node: *Node) []const u8 {
-        const self: *Program = @fieldParentPtr("node", node);
-
-        if (self.statements.len > 0) {
-            return self.statements[0].node.token_literal();
+    pub fn token_literal(self: *const Program) []const u8 {
+        if (self.statements.items.len > 0) {
+            return self.statements.items[0].token_literal();
         }
-
         return "";
     }
 };
 
-pub const LetStatement = struct {
-    node: Node,
-    statement: Statement,
-    token: token.Token,
-    name: *Identifier,
-    value: ?*Expression,
+pub const Node = union(enum) {
+    Program: Program,
+    Statement: Statement,
+    Expression: Expression,
 
-    pub fn init(allocator: std.mem.Allocator, t: token.Token, name: *Identifier, value: ?*Expression) !*LetStatement {
-        const let_stmt = try allocator.create(LetStatement);
-        let_stmt.* = .{
-            .node = .{ .tokenLiteralFn = token_literal },
-            .statement = .{
-                .node = undefined,
-                .statementNodeFn = statement_node,
-            },
+    pub fn deinit(self: *Node, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            inline else => |*n| n.deinit(allocator),
+        }
+    }
+
+    pub fn token_literal(self: *const Node) []const u8 {
+        return switch (self.*) {
+            inline else => |*n| n.token_literal(),
+        };
+    }
+};
+
+pub const Statement = union(enum) {
+    Let: LetStatement,
+
+    pub fn deinit(self: *Statement, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            inline else => |*stmt| stmt.deinit(allocator),
+        }
+    }
+
+    pub fn token_literal(self: *const Statement) []const u8 {
+        return switch (self.*) {
+            inline else => |stmt| stmt.token.literal,
+        };
+    }
+};
+
+pub const LetStatement = struct {
+    token: token.Token,
+    name: Identifier,
+    value: ?Expression,
+
+    pub fn init(t: token.Token, name: Identifier, value: ?Expression) LetStatement {
+        return .{
             .token = t,
             .name = name,
             .value = value,
         };
-
-        let_stmt.statement.node = let_stmt.node;
-
-        return let_stmt;
     }
 
     pub fn deinit(self: *LetStatement, allocator: std.mem.Allocator) void {
         self.name.deinit(allocator);
-        if (self.value) |_| {}
-        allocator.destroy(self);
+        if (self.value) |*v| v.deinit(allocator);
+    }
+};
+
+pub const Expression = union(enum) {
+    Identifier: Identifier,
+
+    pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            inline else => |*e| e.deinit(allocator),
+        }
     }
 
-    fn statement_node(statement: *Statement) void {
-        _ = statement;
-    }
-
-    fn token_literal(node: *Node) []const u8 {
-        const self: *LetStatement = @fieldParentPtr("node", node);
-        return self.token.literal;
+    pub fn token_literal(self: *const Expression) []const u8 {
+        return switch (self.*) {
+            inline else => |*e| e.token.literal,
+        };
     }
 };
 
 pub const Identifier = struct {
-    node: Node,
-    expression: Expression,
     token: token.Token,
     value: []const u8,
 
-    pub fn init(allocator: std.mem.Allocator, t: token.Token, value: []const u8) !*Identifier {
-        const identifier = try allocator.create(Identifier);
-        identifier.* = .{
-            .node = .{ .tokenLiteralFn = token_literal },
-            .expression = .{
-                .node = undefined,
-                .expressionNodeFn = expression_node,
-            },
+    pub fn init(t: token.Token, value: []const u8) Identifier {
+        return .{
             .token = t,
             .value = value,
         };
-
-        identifier.expression.node = identifier.node;
-
-        return identifier;
     }
 
     pub fn deinit(self: *Identifier, allocator: std.mem.Allocator) void {
-        allocator.destroy(self);
-    }
-
-    fn expression_node(expression: *Expression) void {
-        _ = expression;
-    }
-
-    fn token_literal(node: *Node) []const u8 {
-        const self: *Identifier = @fieldParentPtr("node", node);
-        return self.token.literal;
+        _ = self;
+        _ = allocator;
     }
 };

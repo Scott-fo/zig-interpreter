@@ -40,7 +40,7 @@ const Parser = struct {
 
     fn parse_program(self: *Parser) !ast.Program {
         var program = ast.Program.init(self.allocator);
-        errdefer program.deinit();
+        errdefer program.deinit(self.allocator);
 
         while (self.curr_token.type != token.TokenType.EOF) {
             const stmt = try self.parse_statement();
@@ -53,28 +53,24 @@ const Parser = struct {
         return program;
     }
 
-    fn parse_statement(self: *Parser) !?*ast.Statement {
+    fn parse_statement(self: *Parser) !?ast.Statement {
         return switch (self.curr_token.type) {
             token.TokenType.LET => try self.parse_let_statement(),
             else => null,
         };
     }
 
-    fn parse_let_statement(self: *Parser) !?*ast.Statement {
+    fn parse_let_statement(self: *Parser) !?ast.Statement {
         const let_token = self.curr_token;
         if (!try self.expect_peek(token.TokenType.IDENT)) {
             return null;
         }
 
-        const name = try ast.Identifier.init(self.allocator, self.curr_token, self.curr_token.literal);
-        errdefer name.deinit(self.allocator);
+        const name = ast.Identifier.init(self.curr_token, self.curr_token.literal);
 
         if (!try self.expect_peek(token.TokenType.ASSIGN)) {
             return null;
         }
-
-        var stmt = try ast.LetStatement.init(self.allocator, let_token, name, null);
-        errdefer stmt.deinit(self.allocator);
 
         while (!self.curr_token_is(token.TokenType.SEMICOLON)) {
             if (self.curr_token_is(token.TokenType.EOF)) {
@@ -83,7 +79,8 @@ const Parser = struct {
 
             self.next_token();
         }
-        return &stmt.statement;
+
+        return ast.Statement{ .Let = ast.LetStatement.init(let_token, name, null) };
     }
 
     fn curr_token_is(self: *Parser, t: token.TokenType) bool {
@@ -135,29 +132,27 @@ test "let statement" {
     defer p.deinit();
 
     var program = try p.parse_program();
-    defer program.deinit();
+    defer program.deinit(allocator);
 
     const errs = p.get_errors();
     for (errs) |err| {
         std.debug.print("Parser error: {s} - {s}\n", .{ @errorName(err.err), err.msg });
     }
+
     try std.testing.expectEqual(0, p.get_errors().len);
-
-    // Check it is not null
     try std.testing.expect(program.statements.items.len > 0);
-
-    // Check length of program statements is == to 3, otherwise fail
     try std.testing.expectEqual(@as(usize, 3), program.statements.items.len);
 
     const expected_identifiers = [_][]const u8{ "x", "y", "foobar" };
 
     for (program.statements.items, 0..) |stmt, i| {
-        try test_let_statement(stmt, expected_identifiers[i]);
+        try test_let_statement(&stmt, expected_identifiers[i]);
     }
 }
 
-fn test_let_statement(stmt: *ast.Statement, expected_name: []const u8) !void {
-    const let_stmt: *ast.LetStatement = @fieldParentPtr("statement", stmt);
+fn test_let_statement(stmt: *const ast.Statement, expected_name: []const u8) !void {
+    try std.testing.expect(stmt.* == .Let);
+    const let_stmt = stmt.Let;
 
     try std.testing.expectEqualStrings("let", let_stmt.token.literal);
     try std.testing.expectEqualStrings(expected_name, let_stmt.name.value);
