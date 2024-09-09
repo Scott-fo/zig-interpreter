@@ -46,4 +46,34 @@ pub const Token = union(enum) {
 
         return keywords.get(ident);
     }
+
+    pub fn toLiteral(self: Token) []const u8 {
+        return switch (self) {
+            .ASSIGN => "=",
+            .PLUS => "+",
+            .COMMA => ",",
+            .SEMICOLON => ";",
+            .LPAREN => "(",
+            .RPAREN => ")",
+            .LBRACE => "{",
+            .RBRACE => "}",
+            .BANG => "!",
+            .MINUS => "-",
+            .SLASH => "/",
+            .ASTERISK => "*",
+            .LT => "<",
+            .GT => ">",
+            .EQ => "==",
+            .NOT_EQ => "!=",
+            .FUNCTION => "fn",
+            .LET => "let",
+            .IF => "if",
+            .ELSE => "else",
+            .RETURN => "return",
+            .TRUE => "true",
+            .FALSE => "false",
+            .EOF => "",
+            else => unreachable,
+        };
+    }
 };

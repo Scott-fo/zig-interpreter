@@ -23,6 +23,17 @@ pub const Program = struct {
         }
         return "";
     }
+
+    pub fn string(self: *const Program, allocator: std.mem.Allocator) ![]const u8 {
+        var buffer = std.ArrayList(u8).init(allocator);
+        defer buffer.deinit();
+
+        for (self.statements.items) |stmt| {
+            try buffer.appendSlice(try stmt.string(allocator));
+        }
+
+        return buffer.toOwnedSlice();
+    }
 };
 
 pub const Node = union(enum) {
@@ -41,6 +52,12 @@ pub const Node = union(enum) {
             inline else => |*n| n.tokenLiteral(),
         };
     }
+
+    pub fn string(self: *const Node, allocator: std.mem.Allocator) ![]const u8 {
+        return switch (self.*) {
+            inline else => |*e| e.string(allocator),
+        };
+    }
 };
 
 pub const Statement = union(enum) {
@@ -57,6 +74,30 @@ pub const Statement = union(enum) {
         return switch (self.*) {
             inline else => |stmt| stmt.tokenLiteral(),
         };
+    }
+
+    pub fn string(self: *const Statement, allocator: std.mem.Allocator) ![]const u8 {
+        return switch (self.*) {
+            inline else => |*s| s.string(allocator),
+        };
+    }
+};
+
+pub const ExpressionStatement = struct {
+    const Self = @This();
+
+    token: token.Token,
+    expression: ?Expression,
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
+        return self.token.toLiteral();
+    }
+
+    pub fn string(self: *const Self, allocator: std.mem.Allocator) ![]const u8 {
+        if (self.expression) |expr| {
+            return expr.string(allocator);
+        }
+        return allocator.dupe(u8, "");
     }
 };
 
@@ -78,7 +119,21 @@ pub const ReturnStatement = struct {
     }
 
     pub fn tokenLiteral(self: *const Self) []const u8 {
-        return @tagName(self.token);
+        return self.token.toLiteral();
+    }
+
+    pub fn string(self: *const Self, allocator: std.mem.Allocator) ![]const u8 {
+        var buffer = std.ArrayList(u8).init(allocator);
+        defer buffer.deinit();
+
+        try buffer.appendSlice(self.tokenLiteral());
+        try buffer.append(' ');
+        if (self.value) |value| {
+            try buffer.appendSlice(value.string());
+        }
+        try buffer.append(';');
+
+        return buffer.toOwnedSlice();
     }
 };
 
@@ -96,12 +151,28 @@ pub const LetStatement = struct {
     }
 
     pub fn tokenLiteral(self: *const LetStatement) []const u8 {
-        return @tagName(self.token);
+        return self.token.toLiteral();
     }
 
     pub fn deinit(self: *LetStatement, allocator: std.mem.Allocator) void {
         self.name.deinit(allocator);
         if (self.value) |*v| v.deinit(allocator);
+    }
+
+    pub fn string(self: *const LetStatement, allocator: std.mem.Allocator) ![]const u8 {
+        var buffer = std.ArrayList(u8).init(allocator);
+        defer buffer.deinit();
+
+        try buffer.appendSlice(self.tokenLiteral());
+        try buffer.append(' ');
+        try buffer.appendSlice(self.name.string());
+        try buffer.appendSlice(" = ");
+        if (self.value) |value| {
+            try buffer.appendSlice(value.string());
+        }
+        try buffer.append(';');
+
+        return buffer.toOwnedSlice();
     }
 };
 
@@ -117,6 +188,12 @@ pub const Expression = union(enum) {
     pub fn tokenLiteral(self: *const Expression) []const u8 {
         return switch (self.*) {
             inline else => |*e| e.tokenLiteral(),
+        };
+    }
+
+    pub fn string(self: *const Expression) []const u8 {
+        return switch (self.*) {
+            inline else => |*e| e.string(),
         };
     }
 };
@@ -136,7 +213,7 @@ pub const Identifier = struct {
         return switch (self.token) {
             .IDENT => |literal| literal,
             .INT => |literal| literal,
-            else => @tagName(self.token),
+            else => self.token.toLiteral(),
         };
     }
 
@@ -144,4 +221,30 @@ pub const Identifier = struct {
         _ = self;
         _ = allocator;
     }
+
+    pub fn string(self: *const Identifier) []const u8 {
+        return self.value;
+    }
 };
+
+test "test string representation of AST" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var program = Program.init(allocator);
+    defer program.deinit(allocator);
+
+    const let_statement: LetStatement = .{
+        .token = .LET,
+        .name = Identifier.init(.{ .IDENT = "myVar" }, "myVar"),
+        .value = .{ .Identifier = Identifier.init(.{ .IDENT = "anotherVar" }, "anotherVar") },
+    };
+
+    try program.statements.append(.{ .Let = let_statement });
+
+    const program_string = try program.string(allocator);
+    defer allocator.free(program_string);
+
+    try std.testing.expectEqualStrings("let myVar = anotherVar;", program_string);
+}

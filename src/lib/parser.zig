@@ -162,7 +162,7 @@ test "return statement" {
         try std.testing.expect(stmt == .Return);
 
         const return_stmt = stmt.Return;
-        try std.testing.expectEqualStrings("RETURN", return_stmt.tokenLiteral());
+        try std.testing.expectEqualStrings("return", return_stmt.tokenLiteral());
     }
 }
 
@@ -199,7 +199,7 @@ test "let statement" {
         try std.testing.expect(stmt == .Let);
         const let_stmt = stmt.Let;
 
-        try std.testing.expectEqualStrings("LET", let_stmt.tokenLiteral());
+        try std.testing.expectEqualStrings("let", let_stmt.tokenLiteral());
         try std.testing.expectEqualStrings(expected_identifiers[i], let_stmt.name.value);
         try std.testing.expectEqualStrings(expected_identifiers[i], let_stmt.name.tokenLiteral());
     }
