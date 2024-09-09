@@ -54,7 +54,7 @@ pub const Statement = union(enum) {
 
     pub fn token_literal(self: *const Statement) []const u8 {
         return switch (self.*) {
-            inline else => |stmt| stmt.token.literal,
+            inline else => |stmt| stmt.token_literal(),
         };
     }
 };
@@ -70,6 +70,10 @@ pub const LetStatement = struct {
             .name = name,
             .value = value,
         };
+    }
+
+    pub fn token_literal(self: *const LetStatement) []const u8 {
+        return @tagName(self.token);
     }
 
     pub fn deinit(self: *LetStatement, allocator: std.mem.Allocator) void {
@@ -89,7 +93,7 @@ pub const Expression = union(enum) {
 
     pub fn token_literal(self: *const Expression) []const u8 {
         return switch (self.*) {
-            inline else => |*e| e.token.literal,
+            inline else => |*e| e.token_literal(),
         };
     }
 };
@@ -102,6 +106,14 @@ pub const Identifier = struct {
         return .{
             .token = t,
             .value = value,
+        };
+    }
+
+    pub fn token_literal(self: *const Identifier) []const u8 {
+        return switch (self.token) {
+            .IDENT => |literal| literal,
+            .INT => |literal| literal,
+            else => @tagName(self.token),
         };
     }
 

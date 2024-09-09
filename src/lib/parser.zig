@@ -1,5 +1,5 @@
 const lexer = @import("lexer.zig");
-const token = @import("token.zig");
+const Token = @import("token.zig").Token;
 const ast = @import("ast.zig");
 const std = @import("std");
 
@@ -14,8 +14,8 @@ const Error = struct {
 
 const Parser = struct {
     l: *lexer.Lexer,
-    curr_token: token.Token,
-    peek_token: token.Token,
+    curr_token: Token,
+    peek_token: Token,
     errors: std.ArrayList(Error),
     allocator: std.mem.Allocator,
 
@@ -42,7 +42,7 @@ const Parser = struct {
         var program = ast.Program.init(self.allocator);
         errdefer program.deinit(self.allocator);
 
-        while (self.curr_token.type != .EOF) {
+        while (self.curr_token != .EOF) {
             const stmt = try self.parse_statement();
             if (stmt != null) {
                 try program.statements.append(stmt.?);
@@ -54,8 +54,8 @@ const Parser = struct {
     }
 
     fn parse_statement(self: *Parser) !?ast.Statement {
-        return switch (self.curr_token.type) {
-            token.TokenType.LET => try self.parse_let_statement(),
+        return switch (self.curr_token) {
+            .LET => try self.parse_let_statement(),
             else => null,
         };
     }
@@ -66,7 +66,10 @@ const Parser = struct {
             return null;
         }
 
-        const name = ast.Identifier.init(self.curr_token, self.curr_token.literal);
+        const name = ast.Identifier.init(self.curr_token, switch (self.curr_token) {
+            .IDENT => |ident| ident,
+            else => unreachable,
+        });
 
         if (!try self.expect_peek(.ASSIGN)) {
             return null;
@@ -83,15 +86,15 @@ const Parser = struct {
         return ast.Statement{ .Let = ast.LetStatement.init(let_token, name, null) };
     }
 
-    fn curr_token_is(self: *Parser, t: token.TokenType) bool {
-        return self.curr_token.type == t;
+    fn curr_token_is(self: *Parser, t: std.meta.Tag(Token)) bool {
+        return std.meta.activeTag(self.curr_token) == t;
     }
 
-    fn peek_token_is(self: *Parser, t: token.TokenType) bool {
-        return self.peek_token.type == t;
+    fn peek_token_is(self: *Parser, t: std.meta.Tag(Token)) bool {
+        return std.meta.activeTag(self.peek_token) == t;
     }
 
-    fn expect_peek(self: *Parser, t: token.TokenType) !bool {
+    fn expect_peek(self: *Parser, t: std.meta.Tag(Token)) !bool {
         if (self.peek_token_is(t)) {
             self.next_token();
             return true;
@@ -101,8 +104,8 @@ const Parser = struct {
         return false;
     }
 
-    fn peek_error(self: *Parser, t: token.TokenType) !void {
-        const msg = try std.fmt.allocPrint(self.allocator, "expected next token to be {}, got {} instead", .{ t, self.peek_token.type });
+    fn peek_error(self: *Parser, t: std.meta.Tag(Token)) !void {
+        const msg = try std.fmt.allocPrint(self.allocator, "expected next token to be {s}, got {s} instead", .{ @tagName(t), @tagName(self.peek_token) });
         errdefer self.allocator.free(msg);
 
         try self.errors.append(Error{
@@ -154,7 +157,7 @@ fn test_let_statement(stmt: *const ast.Statement, expected_name: []const u8) !vo
     try std.testing.expect(stmt.* == .Let);
     const let_stmt = stmt.Let;
 
-    try std.testing.expectEqualStrings("let", let_stmt.token.literal);
+    try std.testing.expectEqualStrings("LET", let_stmt.token_literal());
     try std.testing.expectEqualStrings(expected_name, let_stmt.name.value);
-    try std.testing.expectEqualStrings(expected_name, let_stmt.name.token.literal);
+    try std.testing.expectEqualStrings(expected_name, let_stmt.name.token_literal());
 }

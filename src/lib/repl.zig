@@ -18,8 +18,15 @@ pub fn start() !void {
             }
             var l = lexer.Lexer.init(user_input);
             var tok = l.next_token();
-            while (tok.type != token.TokenType.EOF) : (tok = l.next_token()) {
-                try stdout.print("Type: {}, Literal: {s}\n", .{ tok.type, tok.literal });
+            while (tok != .EOF) : (tok = l.next_token()) {
+                try stdout.print("Type: {s}", .{@tagName(tok)});
+
+                switch (tok) {
+                    .IDENT, .INT => |literal| try stdout.print(", Literal: {s}", .{literal}),
+                    else => {},
+                }
+
+                try stdout.print("\n", .{});
             }
         }
     }

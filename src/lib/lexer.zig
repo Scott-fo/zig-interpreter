@@ -1,6 +1,5 @@
 const std = @import("std");
-const token = @import("token.zig");
-const TokenType = token.TokenType;
+const Token = @import("token.zig").Token;
 
 pub const Lexer = struct {
     input: []const u8,
@@ -17,49 +16,52 @@ pub const Lexer = struct {
         return l;
     }
 
-    pub fn next_token(self: *Lexer) token.Token {
+    pub fn next_token(self: *Lexer) Token {
         self.skip_whitespace();
 
-        const tok = switch (self.ch) {
+        const tok: Token = switch (self.ch) {
             '=' => blk: {
                 if (self.peek_char() == '=') {
                     self.read_char();
-                    break :blk new_token(.EQ, "==");
+                    break :blk .EQ;
                 } else {
-                    break :blk new_token(.ASSIGN, "=");
+                    break :blk .ASSIGN;
                 }
             },
             '!' => blk: {
                 if (self.peek_char() == '=') {
                     self.read_char();
-                    break :blk new_token(.NOT_EQ, "!=");
+                    break :blk .NOT_EQ;
                 } else {
-                    break :blk new_token(.BANG, "!");
+                    break :blk .BANG;
                 }
             },
-            ';' => new_token(.SEMICOLON, ";"),
-            '(' => new_token(.LPAREN, "("),
-            ')' => new_token(.RPAREN, ")"),
-            ',' => new_token(.COMMA, ","),
-            '+' => new_token(.PLUS, "+"),
-            '{' => new_token(.LBRACE, "{"),
-            '}' => new_token(.RBRACE, "}"),
-            '-' => new_token(.MINUS, "-"),
-            '/' => new_token(.SLASH, "/"),
-            '*' => new_token(.ASTERISK, "*"),
-            '<' => new_token(.LT, "<"),
-            '>' => new_token(.GT, ">"),
-            0 => new_token(.EOF, ""),
-            else => {
-                if (is_letter(self.ch)) {
-                    const literal = self.read_identifier();
-                    return new_token(token.lookup_ident(literal), literal);
-                } else if (is_digit(self.ch)) {
-                    return new_token(TokenType.INT, self.read_number());
-                } else {
-                    return new_token(TokenType.ILLEGAL, &[_]u8{self.ch});
+            ';' => .SEMICOLON,
+            '(' => .LPAREN,
+            ')' => .RPAREN,
+            ',' => .COMMA,
+            '+' => .PLUS,
+            '{' => .LBRACE,
+            '}' => .RBRACE,
+            '-' => .MINUS,
+            '/' => .SLASH,
+            '*' => .ASTERISK,
+            '<' => .LT,
+            '>' => .GT,
+            'a'...'z', 'A'...'Z', '_' => {
+                const ident = self.read_identifier();
+                if (Token.keyword(ident)) |token| {
+                    return token;
                 }
+
+                return .{ .IDENT = ident };
             },
+            '0'...'9' => {
+                const int = self.read_number();
+                return .{ .INT = int };
+            },
+            0 => .EOF,
+            else => .ILLEGAL,
         };
 
         self.read_char();
@@ -77,13 +79,6 @@ pub const Lexer = struct {
         self.read_position += 1;
     }
 
-    fn new_token(token_type: token.TokenType, ch: []const u8) token.Token {
-        return .{
-            .type = token_type,
-            .literal = ch,
-        };
-    }
-
     fn read_identifier(self: *Lexer) []const u8 {
         const p = self.position;
 
@@ -95,7 +90,7 @@ pub const Lexer = struct {
     }
 
     fn skip_whitespace(self: *Lexer) void {
-        while (self.ch == ' ' or self.ch == '\n' or self.ch == '\r') {
+        while (std.ascii.isWhitespace(self.ch)) {
             self.read_char();
         }
     }
@@ -129,26 +124,23 @@ fn is_digit(ch: u8) bool {
 
 test "next token" {
     const input = "=+(){},;";
-    const tests = [_]struct {
-        expectedType: TokenType,
-        expectedLiteral: []const u8,
-    }{
-        .{ .expectedType = .ASSIGN, .expectedLiteral = "=" },
-        .{ .expectedType = .PLUS, .expectedLiteral = "+" },
-        .{ .expectedType = .LPAREN, .expectedLiteral = "(" },
-        .{ .expectedType = .RPAREN, .expectedLiteral = ")" },
-        .{ .expectedType = .LBRACE, .expectedLiteral = "{" },
-        .{ .expectedType = .RBRACE, .expectedLiteral = "}" },
-        .{ .expectedType = .COMMA, .expectedLiteral = "," },
-        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
+
+    const tokens = [_]Token{
+        .ASSIGN,
+        .PLUS,
+        .LPAREN,
+        .RPAREN,
+        .LBRACE,
+        .RBRACE,
+        .COMMA,
+        .SEMICOLON,
     };
 
     var lexer = Lexer.init(input);
 
-    for (tests) |t| {
+    for (tokens) |t| {
         const tok = lexer.next_token();
-        try std.testing.expectEqual(t.expectedType, tok.type);
-        try std.testing.expectEqualStrings(t.expectedLiteral, tok.literal);
+        try std.testing.expectEqualDeep(t, tok);
     }
 }
 
@@ -163,54 +155,50 @@ test "let statement" {
         \\let result = add(five, ten);
     ;
 
-    const tests = [_]struct {
-        expectedType: TokenType,
-        expectedLiteral: []const u8,
-    }{
-        .{ .expectedType = .LET, .expectedLiteral = "let" },
-        .{ .expectedType = .IDENT, .expectedLiteral = "five" },
-        .{ .expectedType = .ASSIGN, .expectedLiteral = "=" },
-        .{ .expectedType = .INT, .expectedLiteral = "5" },
-        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = .LET, .expectedLiteral = "let" },
-        .{ .expectedType = .IDENT, .expectedLiteral = "ten" },
-        .{ .expectedType = .ASSIGN, .expectedLiteral = "=" },
-        .{ .expectedType = .INT, .expectedLiteral = "10" },
-        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = .LET, .expectedLiteral = "let" },
-        .{ .expectedType = .IDENT, .expectedLiteral = "add" },
-        .{ .expectedType = .ASSIGN, .expectedLiteral = "=" },
-        .{ .expectedType = .FUNCTION, .expectedLiteral = "fn" },
-        .{ .expectedType = .LPAREN, .expectedLiteral = "(" },
-        .{ .expectedType = .IDENT, .expectedLiteral = "x" },
-        .{ .expectedType = .COMMA, .expectedLiteral = "," },
-        .{ .expectedType = .IDENT, .expectedLiteral = "y" },
-        .{ .expectedType = .RPAREN, .expectedLiteral = ")" },
-        .{ .expectedType = .LBRACE, .expectedLiteral = "{" },
-        .{ .expectedType = .IDENT, .expectedLiteral = "x" },
-        .{ .expectedType = .PLUS, .expectedLiteral = "+" },
-        .{ .expectedType = .IDENT, .expectedLiteral = "y" },
-        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = .RBRACE, .expectedLiteral = "}" },
-        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = .LET, .expectedLiteral = "let" },
-        .{ .expectedType = .IDENT, .expectedLiteral = "result" },
-        .{ .expectedType = .ASSIGN, .expectedLiteral = "=" },
-        .{ .expectedType = .IDENT, .expectedLiteral = "add" },
-        .{ .expectedType = .LPAREN, .expectedLiteral = "(" },
-        .{ .expectedType = .IDENT, .expectedLiteral = "five" },
-        .{ .expectedType = .COMMA, .expectedLiteral = "," },
-        .{ .expectedType = .IDENT, .expectedLiteral = "ten" },
-        .{ .expectedType = .RPAREN, .expectedLiteral = ")" },
-        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
+    const tokens = [_]Token{
+        .LET,
+        .{ .IDENT = "five" },
+        .ASSIGN,
+        .{ .INT = "5" },
+        .SEMICOLON,
+        .LET,
+        .{ .IDENT = "ten" },
+        .ASSIGN,
+        .{ .INT = "10" },
+        .SEMICOLON,
+        .LET,
+        .{ .IDENT = "add" },
+        .ASSIGN,
+        .FUNCTION,
+        .LPAREN,
+        .{ .IDENT = "x" },
+        .COMMA,
+        .{ .IDENT = "y" },
+        .RPAREN,
+        .LBRACE,
+        .{ .IDENT = "x" },
+        .PLUS,
+        .{ .IDENT = "y" },
+        .SEMICOLON,
+        .RBRACE,
+        .SEMICOLON,
+        .LET,
+        .{ .IDENT = "result" },
+        .ASSIGN,
+        .{ .IDENT = "add" },
+        .LPAREN,
+        .{ .IDENT = "five" },
+        .COMMA,
+        .{ .IDENT = "ten" },
+        .RPAREN,
+        .SEMICOLON,
     };
 
     var lexer = Lexer.init(input);
 
-    for (tests) |t| {
+    for (tokens) |t| {
         const tok = lexer.next_token();
-        try std.testing.expectEqual(t.expectedType, tok.type);
-        try std.testing.expectEqualStrings(t.expectedLiteral, tok.literal);
+        try std.testing.expectEqualDeep(t, tok);
     }
 }
 
@@ -220,30 +208,26 @@ test "test punctuation" {
         \\5 < 10 > 5;
     ;
 
-    const tests = [_]struct {
-        expectedType: TokenType,
-        expectedLiteral: []const u8,
-    }{
-        .{ .expectedType = .BANG, .expectedLiteral = "!" },
-        .{ .expectedType = .MINUS, .expectedLiteral = "-" },
-        .{ .expectedType = .SLASH, .expectedLiteral = "/" },
-        .{ .expectedType = .ASTERISK, .expectedLiteral = "*" },
-        .{ .expectedType = .INT, .expectedLiteral = "5" },
-        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = .INT, .expectedLiteral = "5" },
-        .{ .expectedType = .LT, .expectedLiteral = "<" },
-        .{ .expectedType = .INT, .expectedLiteral = "10" },
-        .{ .expectedType = .GT, .expectedLiteral = ">" },
-        .{ .expectedType = .INT, .expectedLiteral = "5" },
-        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
+    const tokens = [_]Token{
+        .BANG,
+        .MINUS,
+        .SLASH,
+        .ASTERISK,
+        .{ .INT = "5" },
+        .SEMICOLON,
+        .{ .INT = "5" },
+        .LT,
+        .{ .INT = "10" },
+        .GT,
+        .{ .INT = "5" },
+        .SEMICOLON,
     };
 
     var lexer = Lexer.init(input);
 
-    for (tests) |t| {
+    for (tokens) |t| {
         const tok = lexer.next_token();
-        try std.testing.expectEqual(t.expectedType, tok.type);
-        try std.testing.expectEqualStrings(t.expectedLiteral, tok.literal);
+        try std.testing.expectEqualDeep(t, tok);
     }
 }
 
@@ -256,35 +240,31 @@ test "keywords" {
         \\}
     ;
 
-    const tests = [_]struct {
-        expectedType: TokenType,
-        expectedLiteral: []const u8,
-    }{
-        .{ .expectedType = .IF, .expectedLiteral = "if" },
-        .{ .expectedType = .LPAREN, .expectedLiteral = "(" },
-        .{ .expectedType = .INT, .expectedLiteral = "5" },
-        .{ .expectedType = .LT, .expectedLiteral = "<" },
-        .{ .expectedType = .INT, .expectedLiteral = "10" },
-        .{ .expectedType = .RPAREN, .expectedLiteral = ")" },
-        .{ .expectedType = .LBRACE, .expectedLiteral = "{" },
-        .{ .expectedType = .RETURN, .expectedLiteral = "return" },
-        .{ .expectedType = .TRUE, .expectedLiteral = "true" },
-        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = .RBRACE, .expectedLiteral = "}" },
-        .{ .expectedType = .ELSE, .expectedLiteral = "else" },
-        .{ .expectedType = .LBRACE, .expectedLiteral = "{" },
-        .{ .expectedType = .RETURN, .expectedLiteral = "return" },
-        .{ .expectedType = .FALSE, .expectedLiteral = "false" },
-        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = .RBRACE, .expectedLiteral = "}" },
+    const tokens = [_]Token{
+        .IF,
+        .LPAREN,
+        .{ .INT = "5" },
+        .LT,
+        .{ .INT = "10" },
+        .RPAREN,
+        .LBRACE,
+        .RETURN,
+        .TRUE,
+        .SEMICOLON,
+        .RBRACE,
+        .ELSE,
+        .LBRACE,
+        .RETURN,
+        .FALSE,
+        .SEMICOLON,
+        .RBRACE,
     };
 
     var lexer = Lexer.init(input);
 
-    for (tests) |t| {
+    for (tokens) |t| {
         const tok = lexer.next_token();
-        try std.testing.expectEqual(t.expectedType, tok.type);
-        try std.testing.expectEqualStrings(t.expectedLiteral, tok.literal);
+        try std.testing.expectEqualDeep(t, tok);
     }
 }
 
@@ -294,25 +274,21 @@ test "equality" {
         \\10 != 9;
     ;
 
-    const tests = [_]struct {
-        expectedType: TokenType,
-        expectedLiteral: []const u8,
-    }{
-        .{ .expectedType = .INT, .expectedLiteral = "10" },
-        .{ .expectedType = .EQ, .expectedLiteral = "==" },
-        .{ .expectedType = .INT, .expectedLiteral = "10" },
-        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = .INT, .expectedLiteral = "10" },
-        .{ .expectedType = .NOT_EQ, .expectedLiteral = "!=" },
-        .{ .expectedType = .INT, .expectedLiteral = "9" },
-        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
+    const tokens = [_]Token{
+        .{ .INT = "10" },
+        .EQ,
+        .{ .INT = "10" },
+        .SEMICOLON,
+        .{ .INT = "10" },
+        .NOT_EQ,
+        .{ .INT = "9" },
+        .SEMICOLON,
     };
 
     var lexer = Lexer.init(input);
 
-    for (tests) |t| {
+    for (tokens) |t| {
         const tok = lexer.next_token();
-        try std.testing.expectEqual(t.expectedType, tok.type);
-        try std.testing.expectEqualStrings(t.expectedLiteral, tok.literal);
+        try std.testing.expectEqualDeep(t, tok);
     }
 }

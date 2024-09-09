@@ -1,10 +1,12 @@
 const std = @import("std");
 
-pub const TokenType = enum {
+pub const Token = union(enum) {
+    IDENT: []const u8,
+    INT: []const u8,
+
     ILLEGAL,
     EOF,
 
-    // Punctuation
     ASSIGN,
     PLUS,
     COMMA,
@@ -22,34 +24,26 @@ pub const TokenType = enum {
     EQ,
     NOT_EQ,
 
-    // Ident
     FUNCTION,
     LET,
-    IDENT,
-    INT,
     IF,
     ELSE,
     RETURN,
 
     TRUE,
     FALSE,
+
+    pub fn keyword(ident: []const u8) ?Token {
+        const keywords = std.StaticStringMap(Token).initComptime(.{
+            .{ "let", .LET },
+            .{ "fn", .FUNCTION },
+            .{ "true", .TRUE },
+            .{ "false", .FALSE },
+            .{ "if", .IF },
+            .{ "else", .ELSE },
+            .{ "return", .RETURN },
+        });
+
+        return keywords.get(ident);
+    }
 };
-
-pub const Token = struct {
-    type: TokenType,
-    literal: []const u8,
-};
-
-pub const keywords = std.StaticStringMap(TokenType).initComptime(.{
-    .{ "let", .LET },
-    .{ "fn", .FUNCTION },
-    .{ "true", .TRUE },
-    .{ "false", .FALSE },
-    .{ "if", .IF },
-    .{ "else", .ELSE },
-    .{ "return", .RETURN },
-});
-
-pub fn lookup_ident(ident: []const u8) TokenType {
-    return keywords.get(ident) orelse .IDENT;
-}
