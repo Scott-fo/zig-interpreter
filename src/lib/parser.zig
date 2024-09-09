@@ -56,8 +56,20 @@ const Parser = struct {
     fn parseStatement(self: *Parser) !?ast.Statement {
         return switch (self.curr_token) {
             .LET => try self.parseLetStatement(),
+            .RETURN => try self.parseReturnStatement(),
             else => null,
         };
+    }
+
+    fn parseReturnStatement(self: *Parser) !?ast.Statement {
+        const stmt = ast.Statement{ .Return = ast.ReturnStatement.init(self.curr_token, null) };
+        self.nextToken();
+
+        while (!self.currTokenIs(.SEMICOLON)) {
+            self.nextToken();
+        }
+
+        return stmt;
     }
 
     fn parseLetStatement(self: *Parser) !?ast.Statement {
@@ -119,6 +131,41 @@ const Parser = struct {
     }
 };
 
+test "return statement" {
+    const input =
+        \\return 5;
+        \\return 10;
+        \\return 993322;
+    ;
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var l = lexer.Lexer.init(input);
+    var p = Parser.init(allocator, &l);
+    defer p.deinit();
+
+    var program = try p.parseProgram();
+    defer program.deinit(allocator);
+
+    const errs = p.getErrors();
+    for (errs) |err| {
+        std.debug.print("Parser error: {s} - {s}\n", .{ @errorName(err.err), err.msg });
+    }
+
+    try std.testing.expectEqual(0, p.getErrors().len);
+    try std.testing.expect(program.statements.items.len > 0);
+    try std.testing.expectEqual(@as(usize, 3), program.statements.items.len);
+
+    for (program.statements.items) |stmt| {
+        try std.testing.expect(stmt == .Return);
+
+        const return_stmt = stmt.Return;
+        try std.testing.expectEqualStrings("RETURN", return_stmt.tokenLiteral());
+    }
+}
+
 test "let statement" {
     const input =
         \\let x = 5;
@@ -149,15 +196,11 @@ test "let statement" {
     const expected_identifiers = [_][]const u8{ "x", "y", "foobar" };
 
     for (program.statements.items, 0..) |stmt, i| {
-        try testLetStatement(&stmt, expected_identifiers[i]);
+        try std.testing.expect(stmt == .Let);
+        const let_stmt = stmt.Let;
+
+        try std.testing.expectEqualStrings("LET", let_stmt.tokenLiteral());
+        try std.testing.expectEqualStrings(expected_identifiers[i], let_stmt.name.value);
+        try std.testing.expectEqualStrings(expected_identifiers[i], let_stmt.name.tokenLiteral());
     }
-}
-
-fn testLetStatement(stmt: *const ast.Statement, expected_name: []const u8) !void {
-    try std.testing.expect(stmt.* == .Let);
-    const let_stmt = stmt.Let;
-
-    try std.testing.expectEqualStrings("LET", let_stmt.tokenLiteral());
-    try std.testing.expectEqualStrings(expected_name, let_stmt.name.value);
-    try std.testing.expectEqualStrings(expected_name, let_stmt.name.tokenLiteral());
 }

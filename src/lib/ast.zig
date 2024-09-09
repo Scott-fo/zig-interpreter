@@ -45,6 +45,7 @@ pub const Node = union(enum) {
 
 pub const Statement = union(enum) {
     Let: LetStatement,
+    Return: ReturnStatement,
 
     pub fn deinit(self: *Statement, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -56,6 +57,28 @@ pub const Statement = union(enum) {
         return switch (self.*) {
             inline else => |stmt| stmt.tokenLiteral(),
         };
+    }
+};
+
+pub const ReturnStatement = struct {
+    const Self = @This();
+
+    token: token.Token,
+    value: ?Expression,
+
+    pub fn init(t: token.Token, value: ?Expression) Self {
+        return .{
+            .token = t,
+            .value = value,
+        };
+    }
+
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        if (self.value) |*v| v.deinit(allocator);
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
+        return @tagName(self.token);
     }
 };
 
