@@ -120,11 +120,11 @@ pub const Lexer = struct {
 };
 
 fn is_letter(ch: u8) bool {
-    return ('a' <= ch and ch <= 'z') or ('A' <= ch and ch <= 'Z') or ch == '_';
+    return std.ascii.isAlphabetic(ch) or ch == '_';
 }
 
 fn is_digit(ch: u8) bool {
-    return '0' <= ch and ch <= '9';
+    return std.ascii.isDigit(ch);
 }
 
 test "next token" {
