@@ -17,8 +17,8 @@ pub fn start() !void {
                 break;
             }
             var l = lexer.Lexer.init(user_input);
-            var tok = l.next_token();
-            while (tok != .EOF) : (tok = l.next_token()) {
+            var tok = l.nextToken();
+            while (tok != .EOF) : (tok = l.nextToken()) {
                 try stdout.print("Type: {s}", .{@tagName(tok)});
 
                 switch (tok) {

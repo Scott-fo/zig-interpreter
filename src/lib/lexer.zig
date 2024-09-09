@@ -12,25 +12,25 @@ pub const Lexer = struct {
             .input = i,
         };
 
-        l.read_char();
+        l.readChar();
         return l;
     }
 
-    pub fn next_token(self: *Lexer) Token {
-        self.skip_whitespace();
+    pub fn nextToken(self: *Lexer) Token {
+        self.skipWhitespace();
 
         const tok: Token = switch (self.ch) {
             '=' => blk: {
-                if (self.peek_char() == '=') {
-                    self.read_char();
+                if (self.peekChar() == '=') {
+                    self.readChar();
                     break :blk .EQ;
                 } else {
                     break :blk .ASSIGN;
                 }
             },
             '!' => blk: {
-                if (self.peek_char() == '=') {
-                    self.read_char();
+                if (self.peekChar() == '=') {
+                    self.readChar();
                     break :blk .NOT_EQ;
                 } else {
                     break :blk .BANG;
@@ -49,7 +49,7 @@ pub const Lexer = struct {
             '<' => .LT,
             '>' => .GT,
             'a'...'z', 'A'...'Z', '_' => {
-                const ident = self.read_identifier();
+                const ident = self.readIdentifier();
                 if (Token.keyword(ident)) |token| {
                     return token;
                 }
@@ -57,18 +57,18 @@ pub const Lexer = struct {
                 return .{ .IDENT = ident };
             },
             '0'...'9' => {
-                const int = self.read_number();
+                const int = self.readNumber();
                 return .{ .INT = int };
             },
             0 => .EOF,
             else => .ILLEGAL,
         };
 
-        self.read_char();
+        self.readChar();
         return tok;
     }
 
-    fn read_char(self: *Lexer) void {
+    fn readChar(self: *Lexer) void {
         if (self.read_position >= self.input.len) {
             self.ch = 0;
         } else {
@@ -79,33 +79,33 @@ pub const Lexer = struct {
         self.read_position += 1;
     }
 
-    fn read_identifier(self: *Lexer) []const u8 {
+    fn readIdentifier(self: *Lexer) []const u8 {
         const p = self.position;
 
-        while (is_letter(self.ch)) {
-            self.read_char();
+        while (isLetter(self.ch)) {
+            self.readChar();
         }
 
         return self.input[p..self.position];
     }
 
-    fn skip_whitespace(self: *Lexer) void {
+    fn skipWhitespace(self: *Lexer) void {
         while (std.ascii.isWhitespace(self.ch)) {
-            self.read_char();
+            self.readChar();
         }
     }
 
-    fn read_number(self: *Lexer) []const u8 {
+    fn readNumber(self: *Lexer) []const u8 {
         const p = self.position;
 
-        while (is_digit(self.ch)) {
-            self.read_char();
+        while (isDigit(self.ch)) {
+            self.readChar();
         }
 
         return self.input[p..self.position];
     }
 
-    fn peek_char(self: *Lexer) u8 {
+    fn peekChar(self: *Lexer) u8 {
         if (self.read_position >= self.input.len) {
             return 0;
         }
@@ -114,11 +114,11 @@ pub const Lexer = struct {
     }
 };
 
-fn is_letter(ch: u8) bool {
+fn isLetter(ch: u8) bool {
     return std.ascii.isAlphabetic(ch) or ch == '_';
 }
 
-fn is_digit(ch: u8) bool {
+fn isDigit(ch: u8) bool {
     return std.ascii.isDigit(ch);
 }
 
@@ -139,7 +139,7 @@ test "next token" {
     var lexer = Lexer.init(input);
 
     for (tokens) |t| {
-        const tok = lexer.next_token();
+        const tok = lexer.nextToken();
         try std.testing.expectEqualDeep(t, tok);
     }
 }
@@ -197,7 +197,7 @@ test "let statement" {
     var lexer = Lexer.init(input);
 
     for (tokens) |t| {
-        const tok = lexer.next_token();
+        const tok = lexer.nextToken();
         try std.testing.expectEqualDeep(t, tok);
     }
 }
@@ -226,7 +226,7 @@ test "test punctuation" {
     var lexer = Lexer.init(input);
 
     for (tokens) |t| {
-        const tok = lexer.next_token();
+        const tok = lexer.nextToken();
         try std.testing.expectEqualDeep(t, tok);
     }
 }
@@ -263,7 +263,7 @@ test "keywords" {
     var lexer = Lexer.init(input);
 
     for (tokens) |t| {
-        const tok = lexer.next_token();
+        const tok = lexer.nextToken();
         try std.testing.expectEqualDeep(t, tok);
     }
 }
@@ -288,7 +288,7 @@ test "equality" {
     var lexer = Lexer.init(input);
 
     for (tokens) |t| {
-        const tok = lexer.next_token();
+        const tok = lexer.nextToken();
         try std.testing.expectEqualDeep(t, tok);
     }
 }

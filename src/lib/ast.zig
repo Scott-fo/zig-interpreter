@@ -17,9 +17,9 @@ pub const Program = struct {
         self.statements.deinit();
     }
 
-    pub fn token_literal(self: *const Program) []const u8 {
+    pub fn tokenLiteral(self: *const Program) []const u8 {
         if (self.statements.items.len > 0) {
-            return self.statements.items[0].token_literal();
+            return self.statements.items[0].tokenLiteral();
         }
         return "";
     }
@@ -36,9 +36,9 @@ pub const Node = union(enum) {
         }
     }
 
-    pub fn token_literal(self: *const Node) []const u8 {
+    pub fn tokenLiteral(self: *const Node) []const u8 {
         return switch (self.*) {
-            inline else => |*n| n.token_literal(),
+            inline else => |*n| n.tokenLiteral(),
         };
     }
 };
@@ -52,9 +52,9 @@ pub const Statement = union(enum) {
         }
     }
 
-    pub fn token_literal(self: *const Statement) []const u8 {
+    pub fn tokenLiteral(self: *const Statement) []const u8 {
         return switch (self.*) {
-            inline else => |stmt| stmt.token_literal(),
+            inline else => |stmt| stmt.tokenLiteral(),
         };
     }
 };
@@ -72,7 +72,7 @@ pub const LetStatement = struct {
         };
     }
 
-    pub fn token_literal(self: *const LetStatement) []const u8 {
+    pub fn tokenLiteral(self: *const LetStatement) []const u8 {
         return @tagName(self.token);
     }
 
@@ -91,9 +91,9 @@ pub const Expression = union(enum) {
         }
     }
 
-    pub fn token_literal(self: *const Expression) []const u8 {
+    pub fn tokenLiteral(self: *const Expression) []const u8 {
         return switch (self.*) {
-            inline else => |*e| e.token_literal(),
+            inline else => |*e| e.tokenLiteral(),
         };
     }
 };
@@ -109,7 +109,7 @@ pub const Identifier = struct {
         };
     }
 
-    pub fn token_literal(self: *const Identifier) []const u8 {
+    pub fn tokenLiteral(self: *const Identifier) []const u8 {
         return switch (self.token) {
             .IDENT => |literal| literal,
             .INT => |literal| literal,

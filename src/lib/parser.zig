@@ -23,8 +23,8 @@ const Parser = struct {
         const e = std.ArrayList(Error).init(allocator);
         var p = Parser{ .l = l, .curr_token = undefined, .peek_token = undefined, .errors = e, .allocator = allocator };
 
-        p.next_token();
-        p.next_token();
+        p.nextToken();
+        p.nextToken();
 
         return p;
     }
@@ -33,36 +33,36 @@ const Parser = struct {
         self.errors.deinit();
     }
 
-    fn next_token(self: *Parser) void {
+    fn nextToken(self: *Parser) void {
         self.curr_token = self.peek_token;
-        self.peek_token = self.l.next_token();
+        self.peek_token = self.l.nextToken();
     }
 
-    fn parse_program(self: *Parser) !ast.Program {
+    fn parseProgram(self: *Parser) !ast.Program {
         var program = ast.Program.init(self.allocator);
         errdefer program.deinit(self.allocator);
 
         while (self.curr_token != .EOF) {
-            const stmt = try self.parse_statement();
+            const stmt = try self.parseStatement();
             if (stmt != null) {
                 try program.statements.append(stmt.?);
             }
-            self.next_token();
+            self.nextToken();
         }
 
         return program;
     }
 
-    fn parse_statement(self: *Parser) !?ast.Statement {
+    fn parseStatement(self: *Parser) !?ast.Statement {
         return switch (self.curr_token) {
-            .LET => try self.parse_let_statement(),
+            .LET => try self.parseLetStatement(),
             else => null,
         };
     }
 
-    fn parse_let_statement(self: *Parser) !?ast.Statement {
+    fn parseLetStatement(self: *Parser) !?ast.Statement {
         const let_token = self.curr_token;
-        if (!try self.expect_peek(.IDENT)) {
+        if (!try self.expectPeek(.IDENT)) {
             return null;
         }
 
@@ -71,40 +71,40 @@ const Parser = struct {
             else => unreachable,
         });
 
-        if (!try self.expect_peek(.ASSIGN)) {
+        if (!try self.expectPeek(.ASSIGN)) {
             return null;
         }
 
-        while (!self.curr_token_is(.SEMICOLON)) {
-            if (self.curr_token_is(.EOF)) {
+        while (!self.currTokenIs(.SEMICOLON)) {
+            if (self.currTokenIs(.EOF)) {
                 return null;
             }
 
-            self.next_token();
+            self.nextToken();
         }
 
         return ast.Statement{ .Let = ast.LetStatement.init(let_token, name, null) };
     }
 
-    fn curr_token_is(self: *Parser, t: std.meta.Tag(Token)) bool {
+    fn currTokenIs(self: *Parser, t: std.meta.Tag(Token)) bool {
         return std.meta.activeTag(self.curr_token) == t;
     }
 
-    fn peek_token_is(self: *Parser, t: std.meta.Tag(Token)) bool {
+    fn peekTokenIs(self: *Parser, t: std.meta.Tag(Token)) bool {
         return std.meta.activeTag(self.peek_token) == t;
     }
 
-    fn expect_peek(self: *Parser, t: std.meta.Tag(Token)) !bool {
-        if (self.peek_token_is(t)) {
-            self.next_token();
+    fn expectPeek(self: *Parser, t: std.meta.Tag(Token)) !bool {
+        if (self.peekTokenIs(t)) {
+            self.nextToken();
             return true;
         }
 
-        try self.peek_error(t);
+        try self.peekError(t);
         return false;
     }
 
-    fn peek_error(self: *Parser, t: std.meta.Tag(Token)) !void {
+    fn peekError(self: *Parser, t: std.meta.Tag(Token)) !void {
         const msg = try std.fmt.allocPrint(self.allocator, "expected next token to be {s}, got {s} instead", .{ @tagName(t), @tagName(self.peek_token) });
         errdefer self.allocator.free(msg);
 
@@ -114,7 +114,7 @@ const Parser = struct {
         });
     }
 
-    pub fn get_errors(self: *Parser) []const Error {
+    pub fn getErrors(self: *Parser) []const Error {
         return self.errors.items;
     }
 };
@@ -134,30 +134,30 @@ test "let statement" {
     var p = Parser.init(allocator, &l);
     defer p.deinit();
 
-    var program = try p.parse_program();
+    var program = try p.parseProgram();
     defer program.deinit(allocator);
 
-    const errs = p.get_errors();
+    const errs = p.getErrors();
     for (errs) |err| {
         std.debug.print("Parser error: {s} - {s}\n", .{ @errorName(err.err), err.msg });
     }
 
-    try std.testing.expectEqual(0, p.get_errors().len);
+    try std.testing.expectEqual(0, p.getErrors().len);
     try std.testing.expect(program.statements.items.len > 0);
     try std.testing.expectEqual(@as(usize, 3), program.statements.items.len);
 
     const expected_identifiers = [_][]const u8{ "x", "y", "foobar" };
 
     for (program.statements.items, 0..) |stmt, i| {
-        try test_let_statement(&stmt, expected_identifiers[i]);
+        try testLetStatement(&stmt, expected_identifiers[i]);
     }
 }
 
-fn test_let_statement(stmt: *const ast.Statement, expected_name: []const u8) !void {
+fn testLetStatement(stmt: *const ast.Statement, expected_name: []const u8) !void {
     try std.testing.expect(stmt.* == .Let);
     const let_stmt = stmt.Let;
 
-    try std.testing.expectEqualStrings("LET", let_stmt.token_literal());
+    try std.testing.expectEqualStrings("LET", let_stmt.tokenLiteral());
     try std.testing.expectEqualStrings(expected_name, let_stmt.name.value);
-    try std.testing.expectEqualStrings(expected_name, let_stmt.name.token_literal());
+    try std.testing.expectEqualStrings(expected_name, let_stmt.name.tokenLiteral());
 }
