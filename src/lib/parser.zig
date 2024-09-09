@@ -42,7 +42,7 @@ const Parser = struct {
         var program = ast.Program.init(self.allocator);
         errdefer program.deinit(self.allocator);
 
-        while (self.curr_token.type != token.TokenType.EOF) {
+        while (self.curr_token.type != .EOF) {
             const stmt = try self.parse_statement();
             if (stmt != null) {
                 try program.statements.append(stmt.?);
@@ -62,18 +62,18 @@ const Parser = struct {
 
     fn parse_let_statement(self: *Parser) !?ast.Statement {
         const let_token = self.curr_token;
-        if (!try self.expect_peek(token.TokenType.IDENT)) {
+        if (!try self.expect_peek(.IDENT)) {
             return null;
         }
 
         const name = ast.Identifier.init(self.curr_token, self.curr_token.literal);
 
-        if (!try self.expect_peek(token.TokenType.ASSIGN)) {
+        if (!try self.expect_peek(.ASSIGN)) {
             return null;
         }
 
-        while (!self.curr_token_is(token.TokenType.SEMICOLON)) {
-            if (self.curr_token_is(token.TokenType.EOF)) {
+        while (!self.curr_token_is(.SEMICOLON)) {
+            if (self.curr_token_is(.EOF)) {
                 return null;
             }
 

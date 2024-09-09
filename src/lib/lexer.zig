@@ -4,16 +4,13 @@ const TokenType = token.TokenType;
 
 pub const Lexer = struct {
     input: []const u8,
-    position: usize,
-    read_position: usize,
-    ch: u8,
+    position: usize = 0,
+    read_position: usize = 0,
+    ch: u8 = 0,
 
     pub fn init(i: []const u8) Lexer {
         var l = Lexer{
             .input = i,
-            .position = 0,
-            .read_position = 0,
-            .ch = 0,
         };
 
         l.read_char();
@@ -27,32 +24,32 @@ pub const Lexer = struct {
             '=' => blk: {
                 if (self.peek_char() == '=') {
                     self.read_char();
-                    break :blk new_token(TokenType.EQ, "==");
+                    break :blk new_token(.EQ, "==");
                 } else {
-                    break :blk new_token(TokenType.ASSIGN, "=");
+                    break :blk new_token(.ASSIGN, "=");
                 }
             },
-            ';' => new_token(TokenType.SEMICOLON, ";"),
-            '(' => new_token(TokenType.LPAREN, "("),
-            ')' => new_token(TokenType.RPAREN, ")"),
-            ',' => new_token(TokenType.COMMA, ","),
-            '+' => new_token(TokenType.PLUS, "+"),
-            '{' => new_token(TokenType.LBRACE, "{"),
-            '}' => new_token(TokenType.RBRACE, "}"),
             '!' => blk: {
                 if (self.peek_char() == '=') {
                     self.read_char();
-                    break :blk new_token(TokenType.NOT_EQ, "!=");
+                    break :blk new_token(.NOT_EQ, "!=");
                 } else {
-                    break :blk new_token(TokenType.BANG, "!");
+                    break :blk new_token(.BANG, "!");
                 }
             },
-            '-' => new_token(TokenType.MINUS, "-"),
-            '/' => new_token(TokenType.SLASH, "/"),
-            '*' => new_token(TokenType.ASTERISK, "*"),
-            '<' => new_token(TokenType.LT, "<"),
-            '>' => new_token(TokenType.GT, ">"),
-            0 => new_token(TokenType.EOF, ""),
+            ';' => new_token(.SEMICOLON, ";"),
+            '(' => new_token(.LPAREN, "("),
+            ')' => new_token(.RPAREN, ")"),
+            ',' => new_token(.COMMA, ","),
+            '+' => new_token(.PLUS, "+"),
+            '{' => new_token(.LBRACE, "{"),
+            '}' => new_token(.RBRACE, "}"),
+            '-' => new_token(.MINUS, "-"),
+            '/' => new_token(.SLASH, "/"),
+            '*' => new_token(.ASTERISK, "*"),
+            '<' => new_token(.LT, "<"),
+            '>' => new_token(.GT, ">"),
+            0 => new_token(.EOF, ""),
             else => {
                 if (is_letter(self.ch)) {
                     const literal = self.read_identifier();
@@ -136,14 +133,14 @@ test "next token" {
         expectedType: TokenType,
         expectedLiteral: []const u8,
     }{
-        .{ .expectedType = TokenType.ASSIGN, .expectedLiteral = "=" },
-        .{ .expectedType = TokenType.PLUS, .expectedLiteral = "+" },
-        .{ .expectedType = TokenType.LPAREN, .expectedLiteral = "(" },
-        .{ .expectedType = TokenType.RPAREN, .expectedLiteral = ")" },
-        .{ .expectedType = TokenType.LBRACE, .expectedLiteral = "{" },
-        .{ .expectedType = TokenType.RBRACE, .expectedLiteral = "}" },
-        .{ .expectedType = TokenType.COMMA, .expectedLiteral = "," },
-        .{ .expectedType = TokenType.SEMICOLON, .expectedLiteral = ";" },
+        .{ .expectedType = .ASSIGN, .expectedLiteral = "=" },
+        .{ .expectedType = .PLUS, .expectedLiteral = "+" },
+        .{ .expectedType = .LPAREN, .expectedLiteral = "(" },
+        .{ .expectedType = .RPAREN, .expectedLiteral = ")" },
+        .{ .expectedType = .LBRACE, .expectedLiteral = "{" },
+        .{ .expectedType = .RBRACE, .expectedLiteral = "}" },
+        .{ .expectedType = .COMMA, .expectedLiteral = "," },
+        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
     };
 
     var lexer = Lexer.init(input);
@@ -170,42 +167,42 @@ test "let statement" {
         expectedType: TokenType,
         expectedLiteral: []const u8,
     }{
-        .{ .expectedType = TokenType.LET, .expectedLiteral = "let" },
-        .{ .expectedType = TokenType.IDENT, .expectedLiteral = "five" },
-        .{ .expectedType = TokenType.ASSIGN, .expectedLiteral = "=" },
-        .{ .expectedType = TokenType.INT, .expectedLiteral = "5" },
-        .{ .expectedType = TokenType.SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = TokenType.LET, .expectedLiteral = "let" },
-        .{ .expectedType = TokenType.IDENT, .expectedLiteral = "ten" },
-        .{ .expectedType = TokenType.ASSIGN, .expectedLiteral = "=" },
-        .{ .expectedType = TokenType.INT, .expectedLiteral = "10" },
-        .{ .expectedType = TokenType.SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = TokenType.LET, .expectedLiteral = "let" },
-        .{ .expectedType = TokenType.IDENT, .expectedLiteral = "add" },
-        .{ .expectedType = TokenType.ASSIGN, .expectedLiteral = "=" },
-        .{ .expectedType = TokenType.FUNCTION, .expectedLiteral = "fn" },
-        .{ .expectedType = TokenType.LPAREN, .expectedLiteral = "(" },
-        .{ .expectedType = TokenType.IDENT, .expectedLiteral = "x" },
-        .{ .expectedType = TokenType.COMMA, .expectedLiteral = "," },
-        .{ .expectedType = TokenType.IDENT, .expectedLiteral = "y" },
-        .{ .expectedType = TokenType.RPAREN, .expectedLiteral = ")" },
-        .{ .expectedType = TokenType.LBRACE, .expectedLiteral = "{" },
-        .{ .expectedType = TokenType.IDENT, .expectedLiteral = "x" },
-        .{ .expectedType = TokenType.PLUS, .expectedLiteral = "+" },
-        .{ .expectedType = TokenType.IDENT, .expectedLiteral = "y" },
-        .{ .expectedType = TokenType.SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = TokenType.RBRACE, .expectedLiteral = "}" },
-        .{ .expectedType = TokenType.SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = TokenType.LET, .expectedLiteral = "let" },
-        .{ .expectedType = TokenType.IDENT, .expectedLiteral = "result" },
-        .{ .expectedType = TokenType.ASSIGN, .expectedLiteral = "=" },
-        .{ .expectedType = TokenType.IDENT, .expectedLiteral = "add" },
-        .{ .expectedType = TokenType.LPAREN, .expectedLiteral = "(" },
-        .{ .expectedType = TokenType.IDENT, .expectedLiteral = "five" },
-        .{ .expectedType = TokenType.COMMA, .expectedLiteral = "," },
-        .{ .expectedType = TokenType.IDENT, .expectedLiteral = "ten" },
-        .{ .expectedType = TokenType.RPAREN, .expectedLiteral = ")" },
-        .{ .expectedType = TokenType.SEMICOLON, .expectedLiteral = ";" },
+        .{ .expectedType = .LET, .expectedLiteral = "let" },
+        .{ .expectedType = .IDENT, .expectedLiteral = "five" },
+        .{ .expectedType = .ASSIGN, .expectedLiteral = "=" },
+        .{ .expectedType = .INT, .expectedLiteral = "5" },
+        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
+        .{ .expectedType = .LET, .expectedLiteral = "let" },
+        .{ .expectedType = .IDENT, .expectedLiteral = "ten" },
+        .{ .expectedType = .ASSIGN, .expectedLiteral = "=" },
+        .{ .expectedType = .INT, .expectedLiteral = "10" },
+        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
+        .{ .expectedType = .LET, .expectedLiteral = "let" },
+        .{ .expectedType = .IDENT, .expectedLiteral = "add" },
+        .{ .expectedType = .ASSIGN, .expectedLiteral = "=" },
+        .{ .expectedType = .FUNCTION, .expectedLiteral = "fn" },
+        .{ .expectedType = .LPAREN, .expectedLiteral = "(" },
+        .{ .expectedType = .IDENT, .expectedLiteral = "x" },
+        .{ .expectedType = .COMMA, .expectedLiteral = "," },
+        .{ .expectedType = .IDENT, .expectedLiteral = "y" },
+        .{ .expectedType = .RPAREN, .expectedLiteral = ")" },
+        .{ .expectedType = .LBRACE, .expectedLiteral = "{" },
+        .{ .expectedType = .IDENT, .expectedLiteral = "x" },
+        .{ .expectedType = .PLUS, .expectedLiteral = "+" },
+        .{ .expectedType = .IDENT, .expectedLiteral = "y" },
+        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
+        .{ .expectedType = .RBRACE, .expectedLiteral = "}" },
+        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
+        .{ .expectedType = .LET, .expectedLiteral = "let" },
+        .{ .expectedType = .IDENT, .expectedLiteral = "result" },
+        .{ .expectedType = .ASSIGN, .expectedLiteral = "=" },
+        .{ .expectedType = .IDENT, .expectedLiteral = "add" },
+        .{ .expectedType = .LPAREN, .expectedLiteral = "(" },
+        .{ .expectedType = .IDENT, .expectedLiteral = "five" },
+        .{ .expectedType = .COMMA, .expectedLiteral = "," },
+        .{ .expectedType = .IDENT, .expectedLiteral = "ten" },
+        .{ .expectedType = .RPAREN, .expectedLiteral = ")" },
+        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
     };
 
     var lexer = Lexer.init(input);
@@ -227,18 +224,18 @@ test "test punctuation" {
         expectedType: TokenType,
         expectedLiteral: []const u8,
     }{
-        .{ .expectedType = TokenType.BANG, .expectedLiteral = "!" },
-        .{ .expectedType = TokenType.MINUS, .expectedLiteral = "-" },
-        .{ .expectedType = TokenType.SLASH, .expectedLiteral = "/" },
-        .{ .expectedType = TokenType.ASTERISK, .expectedLiteral = "*" },
-        .{ .expectedType = TokenType.INT, .expectedLiteral = "5" },
-        .{ .expectedType = TokenType.SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = TokenType.INT, .expectedLiteral = "5" },
-        .{ .expectedType = TokenType.LT, .expectedLiteral = "<" },
-        .{ .expectedType = TokenType.INT, .expectedLiteral = "10" },
-        .{ .expectedType = TokenType.GT, .expectedLiteral = ">" },
-        .{ .expectedType = TokenType.INT, .expectedLiteral = "5" },
-        .{ .expectedType = TokenType.SEMICOLON, .expectedLiteral = ";" },
+        .{ .expectedType = .BANG, .expectedLiteral = "!" },
+        .{ .expectedType = .MINUS, .expectedLiteral = "-" },
+        .{ .expectedType = .SLASH, .expectedLiteral = "/" },
+        .{ .expectedType = .ASTERISK, .expectedLiteral = "*" },
+        .{ .expectedType = .INT, .expectedLiteral = "5" },
+        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
+        .{ .expectedType = .INT, .expectedLiteral = "5" },
+        .{ .expectedType = .LT, .expectedLiteral = "<" },
+        .{ .expectedType = .INT, .expectedLiteral = "10" },
+        .{ .expectedType = .GT, .expectedLiteral = ">" },
+        .{ .expectedType = .INT, .expectedLiteral = "5" },
+        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
     };
 
     var lexer = Lexer.init(input);
@@ -263,23 +260,23 @@ test "keywords" {
         expectedType: TokenType,
         expectedLiteral: []const u8,
     }{
-        .{ .expectedType = TokenType.IF, .expectedLiteral = "if" },
-        .{ .expectedType = TokenType.LPAREN, .expectedLiteral = "(" },
-        .{ .expectedType = TokenType.INT, .expectedLiteral = "5" },
-        .{ .expectedType = TokenType.LT, .expectedLiteral = "<" },
-        .{ .expectedType = TokenType.INT, .expectedLiteral = "10" },
-        .{ .expectedType = TokenType.RPAREN, .expectedLiteral = ")" },
-        .{ .expectedType = TokenType.LBRACE, .expectedLiteral = "{" },
-        .{ .expectedType = TokenType.RETURN, .expectedLiteral = "return" },
-        .{ .expectedType = TokenType.TRUE, .expectedLiteral = "true" },
-        .{ .expectedType = TokenType.SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = TokenType.RBRACE, .expectedLiteral = "}" },
-        .{ .expectedType = TokenType.ELSE, .expectedLiteral = "else" },
-        .{ .expectedType = TokenType.LBRACE, .expectedLiteral = "{" },
-        .{ .expectedType = TokenType.RETURN, .expectedLiteral = "return" },
-        .{ .expectedType = TokenType.FALSE, .expectedLiteral = "false" },
-        .{ .expectedType = TokenType.SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = TokenType.RBRACE, .expectedLiteral = "}" },
+        .{ .expectedType = .IF, .expectedLiteral = "if" },
+        .{ .expectedType = .LPAREN, .expectedLiteral = "(" },
+        .{ .expectedType = .INT, .expectedLiteral = "5" },
+        .{ .expectedType = .LT, .expectedLiteral = "<" },
+        .{ .expectedType = .INT, .expectedLiteral = "10" },
+        .{ .expectedType = .RPAREN, .expectedLiteral = ")" },
+        .{ .expectedType = .LBRACE, .expectedLiteral = "{" },
+        .{ .expectedType = .RETURN, .expectedLiteral = "return" },
+        .{ .expectedType = .TRUE, .expectedLiteral = "true" },
+        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
+        .{ .expectedType = .RBRACE, .expectedLiteral = "}" },
+        .{ .expectedType = .ELSE, .expectedLiteral = "else" },
+        .{ .expectedType = .LBRACE, .expectedLiteral = "{" },
+        .{ .expectedType = .RETURN, .expectedLiteral = "return" },
+        .{ .expectedType = .FALSE, .expectedLiteral = "false" },
+        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
+        .{ .expectedType = .RBRACE, .expectedLiteral = "}" },
     };
 
     var lexer = Lexer.init(input);
@@ -301,14 +298,14 @@ test "equality" {
         expectedType: TokenType,
         expectedLiteral: []const u8,
     }{
-        .{ .expectedType = TokenType.INT, .expectedLiteral = "10" },
-        .{ .expectedType = TokenType.EQ, .expectedLiteral = "==" },
-        .{ .expectedType = TokenType.INT, .expectedLiteral = "10" },
-        .{ .expectedType = TokenType.SEMICOLON, .expectedLiteral = ";" },
-        .{ .expectedType = TokenType.INT, .expectedLiteral = "10" },
-        .{ .expectedType = TokenType.NOT_EQ, .expectedLiteral = "!=" },
-        .{ .expectedType = TokenType.INT, .expectedLiteral = "9" },
-        .{ .expectedType = TokenType.SEMICOLON, .expectedLiteral = ";" },
+        .{ .expectedType = .INT, .expectedLiteral = "10" },
+        .{ .expectedType = .EQ, .expectedLiteral = "==" },
+        .{ .expectedType = .INT, .expectedLiteral = "10" },
+        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
+        .{ .expectedType = .INT, .expectedLiteral = "10" },
+        .{ .expectedType = .NOT_EQ, .expectedLiteral = "!=" },
+        .{ .expectedType = .INT, .expectedLiteral = "9" },
+        .{ .expectedType = .SEMICOLON, .expectedLiteral = ";" },
     };
 
     var lexer = Lexer.init(input);
