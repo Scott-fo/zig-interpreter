@@ -263,6 +263,11 @@ test "parsing prefix expressions" {
 
         try std.testing.expect(expr_stmt.expression != null);
         try std.testing.expectEqual(ast.NodeType.PrefixExpression, expr_stmt.expression.?.node.getType());
+        const pe: *ast.PrefixExpression = @fieldParentPtr("expression", expr_stmt.expression.?);
+
+        try std.testing.expectEqual(ast.NodeType.IntegerLiteral, pe.right.node.getType());
+        const il: *ast.IntegerLiteral = @fieldParentPtr("expression", pe.right);
+        try std.testing.expectEqual(tt.iv, il.value);
     }
 }
 
