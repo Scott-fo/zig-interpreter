@@ -306,7 +306,7 @@ pub const PrefixExpression = struct {
 
     expression: Expression,
     token: token.Token,
-    operator: ?[]const u8 = null,
+    operator: []const u8,
     right: *Expression,
 
     const vtable = Node.VTable{
@@ -316,7 +316,7 @@ pub const PrefixExpression = struct {
         .getTypeFn = getType,
     };
 
-    pub fn init(allocator: std.mem.Allocator, tok: token.Token, operator: ?[]const u8, right: *Expression) !*Self {
+    pub fn init(allocator: std.mem.Allocator, tok: token.Token, operator: []const u8, right: *Expression) !*Self {
         const expr = try allocator.create(Self);
         expr.* = .{
             .statement = .{ .node = .{ .vtable = &vtable } },

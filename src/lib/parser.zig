@@ -62,7 +62,6 @@ const Parser = struct {
         while (self.curr_token != .EOF) {
             const stmt = try self.parseStatement();
             if (stmt != null) {
-                std.debug.print("Got statement literal: {s}\n", .{stmt.?.node.tokenLiteral()});
                 try program.statements.append(stmt.?);
             }
             self.nextToken();
@@ -258,6 +257,7 @@ test "parsing prefix expressions" {
         try std.testing.expect(program.statements.items.len > 0);
         try std.testing.expectEqual(1, program.statements.items.len);
 
+        try std.testing.expectEqual(ast.NodeType.ExpressionStatement, program.statements.items[0].node.getType());
         const expr_stmt: *ast.ExpressionStatement = @fieldParentPtr("statement", program.statements.items[0]);
         try std.testing.expectEqual(@TypeOf(expr_stmt), *ast.ExpressionStatement);
 
