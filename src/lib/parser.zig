@@ -289,11 +289,12 @@ test "integer literal expr" {
     try std.testing.expect(program.statements.items.len > 0);
     try std.testing.expectEqual(@as(usize, 1), program.statements.items.len);
 
+    try std.testing.expectEqual(ast.NodeType.ExpressionStatement, program.statements.items[0].node.getType());
     const stmt: *ast.ExpressionStatement = @ptrCast(program.statements.items[0]);
-    try std.testing.expect(@TypeOf(stmt) == *ast.ExpressionStatement);
 
+    try std.testing.expect(stmt.expression != null);
+    try std.testing.expectEqual(ast.NodeType.IntegerLiteral, stmt.expression.?.node.getType());
     const expr: *ast.IntegerLiteral = @ptrCast(stmt.expression.?);
-    try std.testing.expect(@TypeOf(expr) == *ast.IntegerLiteral);
 
     const literal = expr.value;
     try std.testing.expectEqual(5, literal.?);
@@ -322,11 +323,12 @@ test "identifier" {
     try std.testing.expect(program.statements.items.len > 0);
     try std.testing.expectEqual(@as(usize, 1), program.statements.items.len);
 
+    try std.testing.expectEqual(ast.NodeType.ExpressionStatement, program.statements.items[0].node.getType());
     const stmt: *ast.ExpressionStatement = @ptrCast(program.statements.items[0]);
-    try std.testing.expect(@TypeOf(stmt) == *ast.ExpressionStatement);
 
+    try std.testing.expect(stmt.expression != null);
+    try std.testing.expectEqual(ast.NodeType.Identifier, stmt.expression.?.node.getType());
     const expr: *ast.Identifier = @ptrCast(stmt.expression.?);
-    try std.testing.expectEqual(*ast.Identifier, @TypeOf(expr));
 
     const ident = expr.value;
     try std.testing.expectEqualStrings("foobar", ident);
@@ -360,8 +362,7 @@ test "return statement" {
     try std.testing.expectEqual(@as(usize, 3), program.statements.items.len);
 
     for (program.statements.items) |stmt| {
-        const stmt_cast: *ast.ReturnStatement = @ptrCast(stmt);
-        try std.testing.expectEqual(*ast.ReturnStatement, @TypeOf(stmt_cast));
+        try std.testing.expectEqual(ast.NodeType.ReturnStatement, stmt.node.getType());
         try std.testing.expectEqualStrings("return", stmt.node.tokenLiteral());
     }
 }
@@ -396,8 +397,8 @@ test "let statement" {
     const expected_identifiers = [_][]const u8{ "x", "y", "foobar" };
 
     for (program.statements.items, 0..) |stmt, i| {
+        try std.testing.expectEqual(ast.NodeType.LetStatement, stmt.node.getType());
         const stmt_cast: *ast.LetStatement = @ptrCast(stmt);
-        try std.testing.expect(@TypeOf(stmt_cast) == *ast.LetStatement);
 
         try std.testing.expectEqualStrings("let", stmt.node.tokenLiteral());
         try std.testing.expectEqualStrings(expected_identifiers[i], stmt_cast.name.value);
