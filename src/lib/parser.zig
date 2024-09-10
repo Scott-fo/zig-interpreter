@@ -17,8 +17,8 @@ const Error = struct {
 
 const Operator = enum(u8) { LOWEST = 1, EQUALS = 2, LESSGREATER = 3, SUM = 4, PRODUCT = 5, PREFIX = 6, CALL = 7 };
 
-const PrefixParseFn = *const fn (*Parser) ?ast.Expression;
-const InfixParseFn = *const fn (ast.Expression) ?ast.Expression;
+const PrefixParseFn = *const fn (*Parser) anyerror!?*ast.Expression;
+const InfixParseFn = *const fn (ast.Expression) anyerror!?*ast.Expression;
 
 const Parser = struct {
     const Self = @This();
@@ -55,13 +55,14 @@ const Parser = struct {
         self.peek_token = self.l.nextToken();
     }
 
-    fn parseProgram(self: *Self) !ast.Program {
+    fn parseProgram(self: *Self) !*ast.Program {
         var program = ast.Program.init(self.allocator);
-        errdefer program.deinit(self.allocator);
+        errdefer program.node.deinit(self.allocator);
 
         while (self.curr_token != .EOF) {
             const stmt = try self.parseStatement();
             if (stmt != null) {
+                std.debug.print("Got statement literal: {s}\n", .{stmt.?.node.tokenLiteral()});
                 try program.statements.append(stmt.?);
             }
             self.nextToken();
@@ -70,17 +71,17 @@ const Parser = struct {
         return program;
     }
 
-    fn parseExpression(self: *Self, _: Operator) !?ast.Expression {
+    fn parseExpression(self: *Self, _: Operator) !?*ast.Expression {
         const prefix = self.prefixParseFns.get(self.curr_token);
         if (prefix == null) {
             return null;
         }
 
-        const left_exp = prefix.?(self);
+        const left_exp = try prefix.?(self);
         return left_exp;
     }
 
-    fn parseStatement(self: *Self) !?ast.Statement {
+    fn parseStatement(self: *Self) !?*ast.Statement {
         return switch (self.curr_token) {
             .LET => try self.parseLetStatement(),
             .RETURN => try self.parseReturnStatement(),
@@ -88,43 +89,48 @@ const Parser = struct {
         };
     }
 
-    fn parseExpressionStatement(self: *Self) !?ast.Statement {
-        var stmt = ast.Statement{ .Expression = ast.ExpressionStatement.init(self.curr_token, null) };
+    fn parseExpressionStatement(self: *Self) !?*ast.Statement {
+        var stmt = try ast.ExpressionStatement.init(self.allocator, self.curr_token, null);
+        errdefer stmt.statement.node.deinit(self.allocator);
+
         const exp = try self.parseExpression(.LOWEST);
         if (exp == null) {
+            stmt.statement.node.deinit(self.allocator);
             return null;
         }
 
-        stmt.Expression.expression = exp.?;
+        stmt.expression = exp;
 
         while (!self.currTokenIs(.SEMICOLON)) {
             self.nextToken();
         }
 
-        return stmt;
+        return &stmt.statement;
     }
 
-    fn parseReturnStatement(self: *Self) !?ast.Statement {
-        const stmt = ast.Statement{ .Return = ast.ReturnStatement.init(self.curr_token, null) };
+    fn parseReturnStatement(self: *Self) !?*ast.Statement {
+        const stmt = try ast.ReturnStatement.init(self.allocator, self.curr_token, null);
+        errdefer stmt.statement.node.deinit(self.allocator);
         self.nextToken();
 
         while (!self.currTokenIs(.SEMICOLON)) {
             self.nextToken();
         }
 
-        return stmt;
+        return &stmt.statement;
     }
 
-    fn parseLetStatement(self: *Self) !?ast.Statement {
+    fn parseLetStatement(self: *Self) !?*ast.Statement {
         const let_token = self.curr_token;
         if (!try self.expectPeek(.IDENT)) {
             return null;
         }
 
-        const name = ast.Identifier.init(self.curr_token, switch (self.curr_token) {
+        const name = try ast.Identifier.init(self.allocator, self.curr_token, switch (self.curr_token) {
             .IDENT => |ident| ident,
             else => unreachable,
         });
+        errdefer name.expression.node.deinit(self.allocator);
 
         if (!try self.expectPeek(.ASSIGN)) {
             return null;
@@ -138,7 +144,8 @@ const Parser = struct {
             self.nextToken();
         }
 
-        return ast.Statement{ .Let = ast.LetStatement.init(let_token, name, null) };
+        const let_stmt = try ast.LetStatement.init(self.allocator, let_token, name, null);
+        return &let_stmt.statement;
     }
 
     fn currTokenIs(self: *Self, t: std.meta.Tag(Token)) bool {
@@ -180,12 +187,16 @@ const Parser = struct {
     }
 };
 
-fn parseIdentifier(p: *Parser) ?ast.Expression {
-    return ast.Expression{ .Identifier = ast.Identifier.init(p.curr_token, p.curr_token.toLiteral()) };
+fn parseIdentifier(p: *Parser) !?*ast.Expression {
+    const i = try ast.Identifier.init(p.allocator, p.curr_token, p.curr_token.toLiteral());
+    errdefer i.expression.node.deinit(p.allocator);
+    return &i.expression;
 }
 
-fn parseIntegerLiteral(p: *Parser) ?ast.Expression {
-    var lit = ast.IntegerLiteral.init(p.curr_token, null);
+fn parseIntegerLiteral(p: *Parser) !?*ast.Expression {
+    var lit = try ast.IntegerLiteral.init(p.allocator, p.curr_token, null);
+    errdefer lit.expression.node.deinit(p.allocator);
+
     const int = std.fmt.parseInt(i64, p.curr_token.toLiteral(), 10) catch |err| {
         const error_msg = switch (err) {
             error.InvalidCharacter => "invalid character in integer literal",
@@ -201,7 +212,7 @@ fn parseIntegerLiteral(p: *Parser) ?ast.Expression {
     };
 
     lit.value = int;
-    return ast.Expression{ .IntegerLiteral = lit };
+    return &lit.expression;
 }
 
 fn printError(err: Error) void {
@@ -213,6 +224,48 @@ fn printError(err: Error) void {
             @tagName(err.expected.?),
             @tagName(err.got.?),
         });
+    }
+}
+
+test "parsing prefix expressions" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const tests = [_]struct {
+        input: []const u8,
+        operator: []const u8,
+        iv: i64,
+    }{
+        .{ .input = "!5;", .operator = "!", .iv = 5 },
+        //.{ .input = "-15;", .operator = "-", .iv = 15 },
+    };
+
+    for (tests) |tt| {
+        var l = lexer.Lexer.init(tt.input);
+        var p = try Parser.init(allocator, &l);
+        defer p.deinit();
+
+        var program = try p.parseProgram();
+        defer program.node.deinit(allocator);
+
+        const errs = p.getErrors();
+        for (errs) |err| {
+            printError(err);
+        }
+
+        try std.testing.expectEqual(0, p.getErrors().len);
+        try std.testing.expect(program.statements.items.len > 0);
+        try std.testing.expectEqual(1, program.statements.items.len);
+
+        const expr_stmt: *ast.ExpressionStatement = @fieldParentPtr("statement", program.statements.items[0]);
+        try std.testing.expectEqual(@TypeOf(expr_stmt), *ast.ExpressionStatement);
+
+        try std.testing.expect(expr_stmt.expression != null);
+        const expr: *ast.IntegerLiteral = @fieldParentPtr("expression", expr_stmt.expression.?);
+        try std.testing.expect(@TypeOf(expr) == *ast.IntegerLiteral);
+
+        try std.testing.expectEqualStrings(tt.operator, expr.operator.?);
     }
 }
 
@@ -228,7 +281,7 @@ test "integer literal expr" {
     defer p.deinit();
 
     var program = try p.parseProgram();
-    defer program.deinit(allocator);
+    defer program.node.deinit(allocator);
 
     const errs = p.getErrors();
     for (errs) |err| {
@@ -239,13 +292,13 @@ test "integer literal expr" {
     try std.testing.expect(program.statements.items.len > 0);
     try std.testing.expectEqual(@as(usize, 1), program.statements.items.len);
 
-    const stmt = program.statements.items[0];
-    try std.testing.expect(stmt == .Expression);
+    const stmt: *ast.ExpressionStatement = @ptrCast(program.statements.items[0]);
+    try std.testing.expect(@TypeOf(stmt) == *ast.ExpressionStatement);
 
-    const expr = stmt.Expression.expression.?;
-    try std.testing.expect(expr == .IntegerLiteral);
+    const expr: *ast.IntegerLiteral = @ptrCast(stmt.expression.?);
+    try std.testing.expect(@TypeOf(expr) == *ast.IntegerLiteral);
 
-    const literal = expr.IntegerLiteral.value;
+    const literal = expr.value;
     try std.testing.expectEqual(5, literal.?);
 }
 
@@ -261,7 +314,7 @@ test "identifier" {
     defer p.deinit();
 
     var program = try p.parseProgram();
-    defer program.deinit(allocator);
+    defer program.node.deinit(allocator);
 
     const errs = p.getErrors();
     for (errs) |err| {
@@ -272,12 +325,13 @@ test "identifier" {
     try std.testing.expect(program.statements.items.len > 0);
     try std.testing.expectEqual(@as(usize, 1), program.statements.items.len);
 
-    const stmt = program.statements.items[0];
-    try std.testing.expect(stmt == .Expression);
-    const expr = stmt.Expression.expression.?;
-    try std.testing.expect(expr == .Identifier);
+    const stmt: *ast.ExpressionStatement = @ptrCast(program.statements.items[0]);
+    try std.testing.expect(@TypeOf(stmt) == *ast.ExpressionStatement);
 
-    const ident = expr.Identifier.value;
+    const expr: *ast.Identifier = @ptrCast(stmt.expression.?);
+    try std.testing.expectEqual(*ast.Identifier, @TypeOf(expr));
+
+    const ident = expr.value;
     try std.testing.expectEqualStrings("foobar", ident);
 }
 
@@ -297,7 +351,7 @@ test "return statement" {
     defer p.deinit();
 
     var program = try p.parseProgram();
-    defer program.deinit(allocator);
+    defer program.node.deinit(allocator);
 
     const errs = p.getErrors();
     for (errs) |err| {
@@ -309,10 +363,9 @@ test "return statement" {
     try std.testing.expectEqual(@as(usize, 3), program.statements.items.len);
 
     for (program.statements.items) |stmt| {
-        try std.testing.expect(stmt == .Return);
-
-        const return_stmt = stmt.Return;
-        try std.testing.expectEqualStrings("return", return_stmt.tokenLiteral());
+        const stmt_cast: *ast.ReturnStatement = @ptrCast(stmt);
+        try std.testing.expectEqual(*ast.ReturnStatement, @TypeOf(stmt_cast));
+        try std.testing.expectEqualStrings("return", stmt.node.tokenLiteral());
     }
 }
 
@@ -332,7 +385,7 @@ test "let statement" {
     defer p.deinit();
 
     var program = try p.parseProgram();
-    defer program.deinit(allocator);
+    defer program.node.deinit(allocator);
 
     const errs = p.getErrors();
     for (errs) |err| {
@@ -346,11 +399,11 @@ test "let statement" {
     const expected_identifiers = [_][]const u8{ "x", "y", "foobar" };
 
     for (program.statements.items, 0..) |stmt, i| {
-        try std.testing.expect(stmt == .Let);
-        const let_stmt = stmt.Let;
+        const stmt_cast: *ast.LetStatement = @ptrCast(stmt);
+        try std.testing.expect(@TypeOf(stmt_cast) == *ast.LetStatement);
 
-        try std.testing.expectEqualStrings("let", let_stmt.tokenLiteral());
-        try std.testing.expectEqualStrings(expected_identifiers[i], let_stmt.name.value);
-        try std.testing.expectEqualStrings(expected_identifiers[i], let_stmt.name.tokenLiteral());
+        try std.testing.expectEqualStrings("let", stmt.node.tokenLiteral());
+        try std.testing.expectEqualStrings(expected_identifiers[i], stmt_cast.name.value);
+        try std.testing.expectEqualStrings(expected_identifiers[i], stmt_cast.name.expression.node.tokenLiteral());
     }
 }
