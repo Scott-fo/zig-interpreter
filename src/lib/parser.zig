@@ -5,17 +5,20 @@ const std = @import("std");
 
 const ParserError = error{
     UnexpectedToken,
+    ParseInt,
 };
 
 const Error = struct {
     err: ParserError,
-    msg: []const u8,
+    expected: ?std.meta.Tag(Token) = null,
+    got: ?std.meta.Tag(Token) = null,
+    msg: ?[]const u8 = null,
 };
 
 const Operator = enum(u8) { LOWEST = 1, EQUALS = 2, LESSGREATER = 3, SUM = 4, PRODUCT = 5, PREFIX = 6, CALL = 7 };
 
-const PrefixParseFn = *const fn (*Parser) ast.Expression;
-const InfixParseFn = *const fn (ast.Expression) ast.Expression;
+const PrefixParseFn = *const fn (*Parser) ?ast.Expression;
+const InfixParseFn = *const fn (ast.Expression) ?ast.Expression;
 
 const Parser = struct {
     const Self = @This();
@@ -32,8 +35,10 @@ const Parser = struct {
     pub fn init(allocator: std.mem.Allocator, l: *lexer.Lexer) !Self {
         const e = std.ArrayList(Error).init(allocator);
         var p = Parser{ .l = l, .curr_token = undefined, .peek_token = undefined, .prefixParseFns = undefined, .infixParseFns = undefined, .errors = e, .allocator = allocator };
+
         p.prefixParseFns = std.AutoHashMap(std.meta.Tag(Token), PrefixParseFn).init(allocator);
         try p.registerPrefix(.IDENT, parseIdentifier);
+        try p.registerPrefix(.INT, parseIntegerLiteral);
 
         p.nextToken();
         p.nextToken();
@@ -155,12 +160,10 @@ const Parser = struct {
     }
 
     fn peekError(self: *Self, t: std.meta.Tag(Token)) !void {
-        const msg = try std.fmt.allocPrint(self.allocator, "expected next token to be {s}, got {s} instead", .{ @tagName(t), @tagName(self.peek_token) });
-        errdefer self.allocator.free(msg);
-
         try self.errors.append(Error{
             .err = ParserError.UnexpectedToken,
-            .msg = msg,
+            .expected = t,
+            .got = self.peek_token,
         });
     }
 
@@ -177,8 +180,73 @@ const Parser = struct {
     }
 };
 
-fn parseIdentifier(p: *Parser) ast.Expression {
+fn parseIdentifier(p: *Parser) ?ast.Expression {
     return ast.Expression{ .Identifier = ast.Identifier.init(p.curr_token, p.curr_token.toLiteral()) };
+}
+
+fn parseIntegerLiteral(p: *Parser) ?ast.Expression {
+    var lit = ast.IntegerLiteral.init(p.curr_token, null);
+    const int = std.fmt.parseInt(i64, p.curr_token.toLiteral(), 10) catch |err| {
+        const error_msg = switch (err) {
+            error.InvalidCharacter => "invalid character in integer literal",
+            error.Overflow => "integer overflow",
+        };
+
+        p.errors.append(Error{
+            .err = ParserError.ParseInt,
+            .msg = error_msg,
+        }) catch return null;
+
+        return null;
+    };
+
+    lit.value = int;
+    return ast.Expression{ .IntegerLiteral = lit };
+}
+
+fn printError(err: Error) void {
+    std.debug.print("Parser error: {s}", .{@errorName(err.err)});
+    if (err.msg != null) {
+        std.debug.print("{s}", .{err.msg.?});
+    } else if (err.expected != null and err.got != null) {
+        std.debug.print(" - expected next token to be {s}, got {s} instead", .{
+            @tagName(err.expected.?),
+            @tagName(err.got.?),
+        });
+    }
+}
+
+test "integer literal expr" {
+    const input = "5;";
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var l = lexer.Lexer.init(input);
+    var p = try Parser.init(allocator, &l);
+    defer p.deinit();
+
+    var program = try p.parseProgram();
+    defer program.deinit(allocator);
+
+    const errs = p.getErrors();
+    for (errs) |err| {
+        printError(err);
+    }
+
+    try std.testing.expectEqual(0, p.getErrors().len);
+    try std.testing.expect(program.statements.items.len > 0);
+    try std.testing.expectEqual(@as(usize, 1), program.statements.items.len);
+
+    const stmt = program.statements.items[0];
+    try std.testing.expect(stmt == .Expression);
+
+    const expr = stmt.Expression.expression.?;
+    try std.testing.expect(expr == .IntegerLiteral);
+
+    const literal = expr.IntegerLiteral.value;
+    try std.testing.expectEqual(5, literal.?);
 }
 
 test "identifier" {
@@ -197,7 +265,7 @@ test "identifier" {
 
     const errs = p.getErrors();
     for (errs) |err| {
-        std.debug.print("Parser error: {s} - {s}\n", .{ @errorName(err.err), err.msg });
+        printError(err);
     }
 
     try std.testing.expectEqual(0, p.getErrors().len);
@@ -233,7 +301,7 @@ test "return statement" {
 
     const errs = p.getErrors();
     for (errs) |err| {
-        std.debug.print("Parser error: {s} - {s}\n", .{ @errorName(err.err), err.msg });
+        printError(err);
     }
 
     try std.testing.expectEqual(0, p.getErrors().len);
@@ -268,7 +336,7 @@ test "let statement" {
 
     const errs = p.getErrors();
     for (errs) |err| {
-        std.debug.print("Parser error: {s} - {s}\n", .{ @errorName(err.err), err.msg });
+        printError(err);
     }
 
     try std.testing.expectEqual(0, p.getErrors().len);

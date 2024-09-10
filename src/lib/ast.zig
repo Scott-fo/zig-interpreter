@@ -190,6 +190,7 @@ pub const LetStatement = struct {
 
 pub const Expression = union(enum) {
     Identifier: Identifier,
+    IntegerLiteral: IntegerLiteral,
 
     pub fn deinit(self: *Expression, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -210,31 +211,56 @@ pub const Expression = union(enum) {
     }
 };
 
-pub const Identifier = struct {
-    token: token.Token,
-    value: []const u8,
+pub const IntegerLiteral = struct {
+    const Self = @This();
 
-    pub fn init(t: token.Token, value: []const u8) Identifier {
+    token: token.Token,
+    value: ?i64,
+
+    pub fn init(t: token.Token, value: ?i64) Self {
         return .{
             .token = t,
             .value = value,
         };
     }
 
-    pub fn tokenLiteral(self: *const Identifier) []const u8 {
-        return switch (self.token) {
-            .IDENT => |literal| literal,
-            .INT => |literal| literal,
-            else => self.token.toLiteral(),
-        };
-    }
-
-    pub fn deinit(self: *Identifier, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
         _ = self;
         _ = allocator;
     }
 
-    pub fn string(self: *const Identifier) []const u8 {
+    pub fn tokenLiteral(self: *const Self) []const u8 {
+        return self.token.toLiteral();
+    }
+
+    pub fn string(self: *const Self) []const u8 {
+        return self.tokenLiteral();
+    }
+};
+
+pub const Identifier = struct {
+    const Self = @This();
+
+    token: token.Token,
+    value: []const u8,
+
+    pub fn init(t: token.Token, value: []const u8) Self {
+        return .{
+            .token = t,
+            .value = value,
+        };
+    }
+
+    pub fn tokenLiteral(self: *const Self) []const u8 {
+        return self.token.toLiteral();
+    }
+
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        _ = self;
+        _ = allocator;
+    }
+
+    pub fn string(self: *const Self) []const u8 {
         return self.value;
     }
 };
