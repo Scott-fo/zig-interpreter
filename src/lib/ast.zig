@@ -63,6 +63,7 @@ pub const Node = union(enum) {
 pub const Statement = union(enum) {
     Let: LetStatement,
     Return: ReturnStatement,
+    Expression: ExpressionStatement,
 
     pub fn deinit(self: *Statement, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -89,15 +90,26 @@ pub const ExpressionStatement = struct {
     token: token.Token,
     expression: ?Expression,
 
+    pub fn init(t: token.Token, expression: ?Expression) Self {
+        return .{
+            .token = t,
+            .expression = expression,
+        };
+    }
+
     pub fn tokenLiteral(self: *const Self) []const u8 {
         return self.token.toLiteral();
     }
 
-    pub fn string(self: *const Self, allocator: std.mem.Allocator) ![]const u8 {
+    pub fn string(self: *const Self, _: std.mem.Allocator) ![]const u8 {
         if (self.expression) |expr| {
-            return expr.string(allocator);
+            return expr.string();
         }
-        return allocator.dupe(u8, "");
+        return "";
+    }
+
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        if (self.expression) |*e| e.deinit(allocator);
     }
 };
 

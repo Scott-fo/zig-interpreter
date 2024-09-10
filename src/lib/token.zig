@@ -49,6 +49,7 @@ pub const Token = union(enum) {
 
     pub fn toLiteral(self: Token) []const u8 {
         return switch (self) {
+            .INT, .IDENT => |i| i,
             .ASSIGN => "=",
             .PLUS => "+",
             .COMMA => ",",
