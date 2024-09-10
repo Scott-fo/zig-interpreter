@@ -1,6 +1,16 @@
 const token = @import("token.zig");
 const std = @import("std");
 
+pub const NodeType = enum {
+    Program,
+    ExpressionStatement,
+    ReturnStatement,
+    LetStatement,
+    PrefixExpression,
+    IntegerLiteral,
+    Identifier,
+};
+
 pub const Node = struct {
     vtable: *const VTable,
 
@@ -8,6 +18,7 @@ pub const Node = struct {
         deinitFn: *const fn (self: *Node, allocator: std.mem.Allocator) void,
         tokenLiteralFn: *const fn (self: *const Node) []const u8,
         stringFn: *const fn (self: *const Node, allocator: std.mem.Allocator) anyerror![]const u8,
+        getTypeFn: *const fn (self: *const Node) NodeType,
     };
 
     pub fn deinit(self: *Node, allocator: std.mem.Allocator) void {
@@ -20,6 +31,10 @@ pub const Node = struct {
 
     pub fn string(self: *const Node, allocator: std.mem.Allocator) ![]const u8 {
         return self.vtable.stringFn(self, allocator);
+    }
+
+    pub fn getType(self: *const Node) NodeType {
+        return self.vtable.getTypeFn(self);
     }
 };
 
@@ -41,6 +56,7 @@ pub const Program = struct {
         .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
+        .getTypeFn = getType,
     };
 
     pub fn init(allocator: std.mem.Allocator) *Self {
@@ -63,6 +79,10 @@ pub const Program = struct {
 
         self.statements.deinit();
         allocator.destroy(self);
+    }
+
+    pub fn getType(_: *const Node) NodeType {
+        return .Program;
     }
 
     pub fn tokenLiteral(node: *const Node) []const u8 {
@@ -103,6 +123,7 @@ pub const ExpressionStatement = struct {
         .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
+        .getTypeFn = getType,
     };
 
     pub fn init(allocator: std.mem.Allocator, tok: token.Token, expression: ?*Expression) !*Self {
@@ -125,6 +146,10 @@ pub const ExpressionStatement = struct {
         }
 
         allocator.destroy(self);
+    }
+
+    pub fn getType(_: *const Node) NodeType {
+        return .ExpressionStatement;
     }
 
     pub fn tokenLiteral(node: *const Node) []const u8 {
@@ -156,6 +181,7 @@ pub const ReturnStatement = struct {
         .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
+        .getTypeFn = getType,
     };
 
     pub fn init(allocator: std.mem.Allocator, tok: token.Token, value: ?*Expression) !*Self {
@@ -178,6 +204,10 @@ pub const ReturnStatement = struct {
         }
 
         allocator.destroy(self);
+    }
+
+    pub fn getType(_: *const Node) NodeType {
+        return .ReturnStatement;
     }
 
     pub fn tokenLiteral(node: *const Node) []const u8 {
@@ -215,6 +245,7 @@ pub const LetStatement = struct {
         .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
+        .getTypeFn = getType,
     };
 
     pub fn init(allocator: std.mem.Allocator, tok: token.Token, name: *Identifier, value: ?*Expression) !*Self {
@@ -239,6 +270,10 @@ pub const LetStatement = struct {
         }
 
         allocator.destroy(self);
+    }
+
+    pub fn getType(_: *const Node) NodeType {
+        return .LetStatement;
     }
 
     pub fn tokenLiteral(node: *const Node) []const u8 {
@@ -278,6 +313,7 @@ pub const PrefixExpression = struct {
         .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
+        .getTypeFn = getType,
     };
 
     pub fn init(allocator: std.mem.Allocator, tok: token.Token, operator: ?[]const u8, right: *Expression) !*Self {
@@ -301,6 +337,10 @@ pub const PrefixExpression = struct {
         }
 
         allocator.destroy(self);
+    }
+
+    pub fn getType(_: *const Node) NodeType {
+        return .PrefixExpression;
     }
 
     pub fn tokenLiteral(node: *const Node) []const u8 {
@@ -339,6 +379,7 @@ pub const IntegerLiteral = struct {
         .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
+        .getTypeFn = getType,
     };
 
     pub fn init(allocator: std.mem.Allocator, tok: token.Token, value: ?i64) !*Self {
@@ -356,6 +397,10 @@ pub const IntegerLiteral = struct {
         const expression: *Expression = @fieldParentPtr("node", node);
         const self: *Self = @fieldParentPtr("expression", expression);
         allocator.destroy(self);
+    }
+
+    pub fn getType(_: *const Node) NodeType {
+        return .IntegerLiteral;
     }
 
     pub fn tokenLiteral(node: *const Node) []const u8 {
@@ -380,6 +425,7 @@ pub const Identifier = struct {
         .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
+        .getTypeFn = getType,
     };
 
     pub fn init(allocator: std.mem.Allocator, tok: token.Token, value: []const u8) !*Self {
@@ -397,6 +443,10 @@ pub const Identifier = struct {
         const expression: *Expression = @fieldParentPtr("node", node);
         const self: *Self = @fieldParentPtr("expression", expression);
         allocator.destroy(self);
+    }
+
+    pub fn getType(_: *const Node) NodeType {
+        return .Identifier;
     }
 
     pub fn tokenLiteral(node: *const Node) []const u8 {

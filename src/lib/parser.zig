@@ -238,7 +238,7 @@ test "parsing prefix expressions" {
         iv: i64,
     }{
         .{ .input = "!5;", .operator = "!", .iv = 5 },
-        //.{ .input = "-15;", .operator = "-", .iv = 15 },
+        .{ .input = "-15;", .operator = "-", .iv = 15 },
     };
 
     for (tests) |tt| {
@@ -262,10 +262,7 @@ test "parsing prefix expressions" {
         try std.testing.expectEqual(@TypeOf(expr_stmt), *ast.ExpressionStatement);
 
         try std.testing.expect(expr_stmt.expression != null);
-        const expr: *ast.IntegerLiteral = @fieldParentPtr("expression", expr_stmt.expression.?);
-        try std.testing.expect(@TypeOf(expr) == *ast.IntegerLiteral);
-
-        try std.testing.expectEqualStrings(tt.operator, expr.operator.?);
+        try std.testing.expectEqual(ast.NodeType.PrefixExpression, expr_stmt.expression.?.node.getType());
     }
 }
 
