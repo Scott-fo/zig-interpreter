@@ -19,7 +19,86 @@ const Error = struct {
 const Operator = enum(u8) { LOWEST = 1, EQUALS = 2, LESSGREATER = 3, SUM = 4, PRODUCT = 5, PREFIX = 6, CALL = 7 };
 
 const PrefixParseFn = *const fn (*Parser) anyerror!?*ast.Expression;
-const InfixParseFn = *const fn (*Parser, *ast.Expression) anyerror!*ast.Expression;
+const InfixParseFn = *const fn (*Parser, *ast.Expression) anyerror!?*ast.Expression;
+
+fn getPrefixFn(t: std.meta.Tag(Token)) ?PrefixParseFn {
+    return switch (t) {
+        .IDENT => parseIdentifier,
+        .INT => parseIntegerLiteral,
+        .BANG, .MINUS => parsePrefixExpression,
+        else => null,
+    };
+}
+
+fn getInfixFn(t: std.meta.Tag(Token)) ?InfixParseFn {
+    return switch (t) {
+        .PLUS, .MINUS, .SLASH, .ASTERISK, .EQ, .NOT_EQ, .LT, .GT => parseInfixExpression,
+        else => null,
+    };
+}
+
+fn parseInfixExpression(p: *Parser, left: *ast.Expression) !?*ast.Expression {
+    const curr = p.curr_token;
+    const operator = p.curr_token.toLiteral();
+    const precendence = p.curPrecedence();
+
+    p.nextToken();
+
+    const right = try p.parseExpression(precendence);
+    if (right == null) {
+        return null;
+    }
+
+    const ie = try ast.InfixExpression.init(p.allocator, curr, operator, left, right.?);
+    errdefer ie.expression.node.deinit(p.allocator);
+
+    return &ie.expression;
+}
+
+fn parsePrefixExpression(p: *Parser) !?*ast.Expression {
+    const curr = p.curr_token;
+    const operator = p.curr_token.toLiteral();
+
+    p.nextToken();
+
+    const right = try p.parseExpression(.PREFIX);
+    if (right == null) {
+        return null;
+    }
+
+    const pe = try ast.PrefixExpression.init(p.allocator, curr, operator, right.?);
+    errdefer pe.expression.node.deinit(p.allocator);
+
+    return &pe.expression;
+}
+
+fn parseIdentifier(p: *Parser) !?*ast.Expression {
+    const i = try ast.Identifier.init(p.allocator, p.curr_token, p.curr_token.toLiteral());
+    errdefer i.expression.node.deinit(p.allocator);
+    return &i.expression;
+}
+
+fn parseIntegerLiteral(p: *Parser) !?*ast.Expression {
+    var lit = try ast.IntegerLiteral.init(p.allocator, p.curr_token, null);
+    errdefer lit.expression.node.deinit(p.allocator);
+
+    const int = std.fmt.parseInt(i64, p.curr_token.toLiteral(), 10) catch |err| {
+        const error_msg = switch (err) {
+            error.InvalidCharacter => "invalid character in integer literal",
+            error.Overflow => "integer overflow",
+        };
+
+        try p.errors.append(Error{
+            .err = ParserError.ParseInt,
+            .msg = error_msg,
+        });
+
+        return null;
+    };
+
+    lit.value = int;
+    return &lit.expression;
+}
 
 const Parser = struct {
     const Self = @This();
@@ -30,28 +109,9 @@ const Parser = struct {
     curr_token: Token,
     peek_token: Token,
 
-    prefixParseFns: std.AutoHashMap(std.meta.Tag(Token), PrefixParseFn),
-    infixParseFns: std.AutoHashMap(std.meta.Tag(Token), InfixParseFn),
-
     pub fn init(allocator: std.mem.Allocator, l: *lexer.Lexer) !Self {
         const e = std.ArrayList(Error).init(allocator);
-        var p = Parser{ .l = l, .curr_token = undefined, .peek_token = undefined, .prefixParseFns = undefined, .infixParseFns = undefined, .errors = e, .allocator = allocator };
-
-        p.prefixParseFns = std.AutoHashMap(std.meta.Tag(Token), PrefixParseFn).init(allocator);
-        try p.registerPrefix(.IDENT, parseIdentifier);
-        try p.registerPrefix(.INT, parseIntegerLiteral);
-        try p.registerPrefix(.BANG, parsePrefixExpression);
-        try p.registerPrefix(.MINUS, parsePrefixExpression);
-
-        p.infixParseFns = std.AutoHashMap(std.meta.Tag(Token), InfixParseFn).init(allocator);
-        try p.registerInfix(.PLUS, parseInfixExpression);
-        try p.registerInfix(.MINUS, parseInfixExpression);
-        try p.registerInfix(.SLASH, parseInfixExpression);
-        try p.registerInfix(.ASTERISK, parseInfixExpression);
-        try p.registerInfix(.EQ, parseInfixExpression);
-        try p.registerInfix(.NOT_EQ, parseInfixExpression);
-        try p.registerInfix(.LT, parseInfixExpression);
-        try p.registerInfix(.GT, parseInfixExpression);
+        var p = Parser{ .l = l, .curr_token = undefined, .peek_token = undefined, .errors = e, .allocator = allocator };
 
         p.nextToken();
         p.nextToken();
@@ -84,7 +144,7 @@ const Parser = struct {
     }
 
     fn parseExpression(self: *Self, precedence: Operator) !?*ast.Expression {
-        const prefix = self.prefixParseFns.get(self.curr_token);
+        const prefix = getPrefixFn(self.curr_token);
         if (prefix == null) {
             try self.noPrefixParseFnError();
             return null;
@@ -92,12 +152,11 @@ const Parser = struct {
 
         var left_exp = try prefix.?(self);
         if (left_exp == null) {
-            // How to handle this?
-
+            return null;
         }
 
         while (!self.peekTokenIs(.SEMICOLON) and @intFromEnum(precedence) < @intFromEnum(self.peekPrecedence())) {
-            const infix = self.infixParseFns.get(self.peek_token);
+            const infix = getInfixFn(self.peek_token);
             if (infix == null) {
                 return left_exp;
             }
@@ -106,7 +165,7 @@ const Parser = struct {
 
             left_exp = try infix.?(self, left_exp.?);
             if (left_exp == null) {
-                // How to handle this?
+                return null;
             }
         }
         return left_exp;
@@ -237,79 +296,7 @@ const Parser = struct {
     pub fn getErrors(self: *Self) []const Error {
         return self.errors.items;
     }
-
-    pub fn registerPrefix(self: *Self, t: std.meta.Tag(Token), f: PrefixParseFn) !void {
-        try self.prefixParseFns.put(t, f);
-    }
-
-    pub fn registerInfix(self: *Self, t: std.meta.Tag(Token), f: InfixParseFn) !void {
-        try self.infixParseFns.put(t, f);
-    }
 };
-
-fn parseInfixExpression(p: *Parser, left: *ast.Expression) !*ast.Expression {
-    const curr = p.curr_token;
-    const operator = p.curr_token.toLiteral();
-    const precendence = p.curPrecedence();
-
-    p.nextToken();
-
-    const right = try p.parseExpression(precendence);
-    if (right == null) {
-        // How to handle this?
-    }
-
-    const ie = try ast.InfixExpression.init(p.allocator, curr, operator, left, right.?);
-    errdefer ie.expression.node.deinit(p.allocator);
-
-    return &ie.expression;
-}
-
-fn parsePrefixExpression(p: *Parser) !?*ast.Expression {
-    const curr = p.curr_token;
-    const operator = p.curr_token.toLiteral();
-
-    p.nextToken();
-
-    const right = try p.parseExpression(.PREFIX);
-    if (right == null) {
-        // How to handle this?
-        return null;
-    }
-
-    const pe = try ast.PrefixExpression.init(p.allocator, curr, operator, right.?);
-    errdefer pe.expression.node.deinit(p.allocator);
-
-    return &pe.expression;
-}
-
-fn parseIdentifier(p: *Parser) !?*ast.Expression {
-    const i = try ast.Identifier.init(p.allocator, p.curr_token, p.curr_token.toLiteral());
-    errdefer i.expression.node.deinit(p.allocator);
-    return &i.expression;
-}
-
-fn parseIntegerLiteral(p: *Parser) !?*ast.Expression {
-    var lit = try ast.IntegerLiteral.init(p.allocator, p.curr_token, null);
-    errdefer lit.expression.node.deinit(p.allocator);
-
-    const int = std.fmt.parseInt(i64, p.curr_token.toLiteral(), 10) catch |err| {
-        const error_msg = switch (err) {
-            error.InvalidCharacter => "invalid character in integer literal",
-            error.Overflow => "integer overflow",
-        };
-
-        try p.errors.append(Error{
-            .err = ParserError.ParseInt,
-            .msg = error_msg,
-        });
-
-        return null;
-    };
-
-    lit.value = int;
-    return &lit.expression;
-}
 
 fn printError(err: Error) void {
     std.debug.print("Parser error: {s}", .{@errorName(err.err)});
