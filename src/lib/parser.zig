@@ -36,6 +36,7 @@ fn getPrefixFn(t: std.meta.Tag(Token)) ?PrefixParseFn {
         .BANG, .MINUS => parsePrefixExpression,
         .TRUE, .FALSE => parseBoolean,
         .LPAREN => parseGroupedExpression,
+        .IF => parseIfExpression,
         else => null,
     };
 }
@@ -60,6 +61,53 @@ fn parseInfixExpression(p: *Parser, left: *ast.Expression) !?*ast.Expression {
     }
 
     const ie = try ast.InfixExpression.init(p.allocator, curr, operator, left, right.?);
+    errdefer ie.expression.node.deinit(p.allocator);
+
+    return &ie.expression;
+}
+
+fn parseBlockStatement(p: *Parser) !*ast.BlockStatement {
+    var block = try ast.BlockStatement.init(p.allocator);
+    errdefer block.node.deinit(p.allocator);
+
+    p.nextToken();
+
+    while (!p.currTokenIs(.RBRACE) and !p.currTokenIs(.EOF)) {
+        const stmt = try p.parseStatement();
+        if (stmt != null) {
+            try block.statements.append(stmt.?);
+        }
+
+        p.nextToken();
+    }
+
+    return block;
+}
+
+fn parseIfExpression(p: *Parser) !?*ast.Expression {
+    const curr = p.curr_token;
+
+    if (!try p.expectPeek(.LPAREN)) {
+        return null;
+    }
+
+    p.nextToken();
+    const condition = try p.parseExpression(.LOWEST);
+    if (condition == null) {
+        return null;
+    }
+
+    if (!try p.expectPeek(.RPAREN)) {
+        return null;
+    }
+
+    if (!try p.expectPeek(.LBRACE)) {
+        return null;
+    }
+
+    const consequence = try parseBlockStatement(p);
+
+    const ie = try ast.IfExpression.init(p.allocator, curr, condition.?, consequence, null);
     errdefer ie.expression.node.deinit(p.allocator);
 
     return &ie.expression;
@@ -360,6 +408,7 @@ fn printError(err: Error) void {
 const TestLiteral = union(enum) {
     int: i64,
     boolean: bool,
+    ident: []const u8,
 };
 
 fn testParseProgram(allocator: std.mem.Allocator, input: []const u8) !*ast.Program {
@@ -389,10 +438,16 @@ fn expectExpressionStatement(stmt: *ast.Statement) !*ast.ExpressionStatement {
     return @ptrCast(stmt);
 }
 
+fn expectIfExpression(expr: *ast.Expression) !*ast.IfExpression {
+    try std.testing.expectEqual(ast.NodeType.IfExpression, expr.node.getType());
+    return @ptrCast(expr);
+}
+
 fn expectLiteral(expr: *ast.Expression, expected: TestLiteral) !void {
     switch (expected) {
         .int => |v| try expectIntegerLiteral(expr, v),
         .boolean => |v| try expectBoolean(expr, v),
+        .ident => |v| try expectIdentifier(expr, v),
     }
 }
 
@@ -438,6 +493,32 @@ fn expectPrefixExpression(
 
     try std.testing.expectEqualStrings(op, pe.operator);
     try expectLiteral(pe.right, right);
+}
+
+test "if expression" {
+    const input = "if (x < y) { x }";
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var program = try testParseProgram(allocator, input);
+    defer program.node.deinit(allocator);
+
+    try expectStatementLength(program, 1);
+
+    const stmt = try expectExpressionStatement(program.statements.items[0]);
+    try std.testing.expect(stmt.expression != null);
+    const expr = try expectIfExpression(stmt.expression.?);
+
+    try expectInfixExpression(expr.condition, .{ .ident = "x" }, "<", .{ .ident = "y" });
+    try std.testing.expect(expr.consequence.statements.items.len == 1);
+
+    const consequence = try expectExpressionStatement(expr.consequence.statements.items[0]);
+    try std.testing.expect(consequence.expression != null);
+
+    try expectIdentifier(consequence.expression.?, "x");
+    try std.testing.expect(expr.alternative == null);
 }
 
 test "operator precedence parsing" {
