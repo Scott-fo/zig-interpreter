@@ -334,6 +334,11 @@ fn printError(err: Error) void {
     }
 }
 
+const TestLiteral = union(enum) {
+    int: i64,
+    boolean: bool,
+};
+
 fn testParseProgram(allocator: std.mem.Allocator, input: []const u8) !*ast.Program {
     var l = lexer.Lexer.init(input);
     var p = try Parser.init(allocator, &l);
@@ -361,6 +366,13 @@ fn expectExpressionStatement(stmt: *ast.Statement) !*ast.ExpressionStatement {
     return @ptrCast(stmt);
 }
 
+fn expectLiteral(expr: *ast.Expression, expected: TestLiteral) !void {
+    switch (expected) {
+        .int => |v| try expectIntegerLiteral(expr, v),
+        .boolean => |v| try expectBoolean(expr, v),
+    }
+}
+
 fn expectBoolean(expr: *ast.Expression, expected: bool) !void {
     try std.testing.expectEqual(ast.NodeType.Boolean, expr.node.getType());
     const il: *ast.Boolean = @ptrCast(expr);
@@ -379,21 +391,21 @@ fn expectIdentifier(expr: *ast.Expression, expected: []const u8) !void {
     try std.testing.expectEqualStrings(expected, ident.value);
 }
 
-fn expectInfixExpression(expr: *ast.Expression, left: i64, op: []const u8, right: i64) !void {
+fn expectInfixExpression(expr: *ast.Expression, left: TestLiteral, op: []const u8, right: TestLiteral) !void {
     try std.testing.expectEqual(ast.NodeType.InfixExpression, expr.node.getType());
     const ie: *ast.InfixExpression = @ptrCast(expr);
 
     try std.testing.expectEqualStrings(op, ie.operator);
-    try expectIntegerLiteral(ie.left, left);
-    try expectIntegerLiteral(ie.right, right);
+    try expectLiteral(ie.left, left);
+    try expectLiteral(ie.right, right);
 }
 
-fn expectPrefixExpression(expr: *ast.Expression, op: []const u8, right: i64) !void {
+fn expectPrefixExpression(expr: *ast.Expression, op: []const u8, right: TestLiteral) !void {
     try std.testing.expectEqual(ast.NodeType.PrefixExpression, expr.node.getType());
     const pe: *ast.PrefixExpression = @ptrCast(expr);
 
     try std.testing.expectEqualStrings(op, pe.operator);
-    try expectIntegerLiteral(pe.right, right);
+    try expectLiteral(pe.right, right);
 }
 
 test "operator precedence parsing" {
@@ -418,6 +430,10 @@ test "operator precedence parsing" {
         .{ .input = "5 < 4 != 3 > 4", .expected = "((5 < 4) != (3 > 4))" },
         .{ .input = "3 + 4 * 5 == 3 * 1 + 4 * 5", .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))" },
         .{ .input = "3 + 4 * 5 == 3 * 1 + 4 * 5", .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))" },
+        .{ .input = "true", .expected = "true" },
+        .{ .input = "false", .expected = "false" },
+        .{ .input = "3 > 5 == false", .expected = "((3 > 5) == false)" },
+        .{ .input = "3 < 5 == true", .expected = "((3 < 5) == true)" },
     };
 
     for (tests) |tt| {
@@ -438,18 +454,21 @@ test "parsing infix expressions" {
 
     const tests = [_]struct {
         input: []const u8,
-        left_value: i64,
+        left_value: TestLiteral,
         operator: []const u8,
-        right_value: i64,
+        right_value: TestLiteral,
     }{
-        .{ .input = "5 + 5;", .left_value = 5, .operator = "+", .right_value = 5 },
-        .{ .input = "5 - 5;", .left_value = 5, .operator = "-", .right_value = 5 },
-        .{ .input = "5 * 5;", .left_value = 5, .operator = "*", .right_value = 5 },
-        .{ .input = "5 / 5;", .left_value = 5, .operator = "/", .right_value = 5 },
-        .{ .input = "5 > 5;", .left_value = 5, .operator = ">", .right_value = 5 },
-        .{ .input = "5 < 5;", .left_value = 5, .operator = "<", .right_value = 5 },
-        .{ .input = "5 == 5;", .left_value = 5, .operator = "==", .right_value = 5 },
-        .{ .input = "5 != 5;", .left_value = 5, .operator = "!=", .right_value = 5 },
+        .{ .input = "5 + 5;", .left_value = .{ .int = 5 }, .operator = "+", .right_value = .{ .int = 5 } },
+        .{ .input = "5 - 5;", .left_value = .{ .int = 5 }, .operator = "-", .right_value = .{ .int = 5 } },
+        .{ .input = "5 * 5;", .left_value = .{ .int = 5 }, .operator = "*", .right_value = .{ .int = 5 } },
+        .{ .input = "5 / 5;", .left_value = .{ .int = 5 }, .operator = "/", .right_value = .{ .int = 5 } },
+        .{ .input = "5 > 5;", .left_value = .{ .int = 5 }, .operator = ">", .right_value = .{ .int = 5 } },
+        .{ .input = "5 < 5;", .left_value = .{ .int = 5 }, .operator = "<", .right_value = .{ .int = 5 } },
+        .{ .input = "5 == 5;", .left_value = .{ .int = 5 }, .operator = "==", .right_value = .{ .int = 5 } },
+        .{ .input = "5 != 5;", .left_value = .{ .int = 5 }, .operator = "!=", .right_value = .{ .int = 5 } },
+        .{ .input = "true == true", .left_value = .{ .boolean = true }, .operator = "==", .right_value = .{ .boolean = true } },
+        .{ .input = "true != false", .left_value = .{ .boolean = true }, .operator = "!=", .right_value = .{ .boolean = false } },
+        .{ .input = "false == false", .left_value = .{ .boolean = false }, .operator = "==", .right_value = .{ .boolean = false } },
     };
 
     for (tests) |tt| {
@@ -471,10 +490,12 @@ test "parsing prefix expressions" {
     const tests = [_]struct {
         input: []const u8,
         operator: []const u8,
-        iv: i64,
+        iv: TestLiteral,
     }{
-        .{ .input = "!5;", .operator = "!", .iv = 5 },
-        .{ .input = "-15;", .operator = "-", .iv = 15 },
+        .{ .input = "!5;", .operator = "!", .iv = .{ .int = 5 } },
+        .{ .input = "-15;", .operator = "-", .iv = .{ .int = 15 } },
+        .{ .input = "!true;", .operator = "!", .iv = .{ .boolean = true } },
+        .{ .input = "!false;", .operator = "!", .iv = .{ .boolean = false } },
     };
 
     for (tests) |tt| {
