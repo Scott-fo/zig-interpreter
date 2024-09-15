@@ -37,6 +37,7 @@ fn getPrefixFn(t: std.meta.Tag(Token)) ?PrefixParseFn {
         .TRUE, .FALSE => parseBoolean,
         .LPAREN => parseGroupedExpression,
         .IF => parseIfExpression,
+        .FUNCTION => parseFunctionLiteral,
         else => null,
     };
 }
@@ -64,6 +65,65 @@ fn parseInfixExpression(p: *Parser, left: *ast.Expression) !?*ast.Expression {
     errdefer ie.expression.node.deinit(p.allocator);
 
     return &ie.expression;
+}
+
+fn parseFunctionParams(p: *Parser) !?std.ArrayList(*ast.Identifier) {
+    var idents = std.ArrayList(*ast.Identifier).init(p.allocator);
+    errdefer idents.deinit();
+
+    if (p.peekTokenIs(.RPAREN)) {
+        p.nextToken();
+        return idents;
+    }
+
+    p.nextToken();
+
+    var ident: *ast.Identifier = undefined;
+    ident = try ast.Identifier.init(p.allocator, p.curr_token, p.curr_token.toLiteral());
+    errdefer ident.expression.node.deinit(p.allocator);
+
+    try idents.append(ident);
+
+    while (p.peekTokenIs(.COMMA)) {
+        p.nextToken();
+        p.nextToken();
+
+        ident = try ast.Identifier.init(p.allocator, p.curr_token, p.curr_token.toLiteral());
+        errdefer ident.expression.node.deinit(p.allocator);
+
+        try idents.append(ident);
+    }
+
+    if (!try p.expectPeek(.RPAREN)) {
+        return null;
+    }
+
+    return idents;
+}
+
+fn parseFunctionLiteral(p: *Parser) !?*ast.Expression {
+    const curr = p.curr_token;
+
+    if (!try p.expectPeek(.LPAREN)) {
+        return null;
+    }
+
+    const params = try parseFunctionParams(p);
+
+    if (!try p.expectPeek(.LBRACE)) {
+        return null;
+    }
+
+    const body = try parseBlockStatement(p);
+
+    var lit = try ast.FunctionLiteral.init(p.allocator, curr, body);
+    errdefer lit.expression.node.deinit(p.allocator);
+
+    if (params != null) {
+        lit.parameters = params.?;
+    }
+
+    return &lit.expression;
 }
 
 fn parseBlockStatement(p: *Parser) !*ast.BlockStatement {
@@ -450,6 +510,13 @@ fn expectIfExpression(expr: *ast.Expression) !*ast.IfExpression {
     return @ptrCast(expr);
 }
 
+fn expectFunctionLiteral(expr: *ast.Expression, length: usize) !*ast.FunctionLiteral {
+    try std.testing.expectEqual(ast.NodeType.FunctionLiteral, expr.node.getType());
+    const fe: *ast.FunctionLiteral = @ptrCast(expr);
+    try std.testing.expect(fe.parameters.items.len == length);
+    return fe;
+}
+
 fn expectLiteral(expr: *ast.Expression, expected: TestLiteral) !void {
     switch (expected) {
         .int => |v| try expectIntegerLiteral(expr, v),
@@ -500,6 +567,61 @@ fn expectPrefixExpression(
 
     try std.testing.expectEqualStrings(op, pe.operator);
     try expectLiteral(pe.right, right);
+}
+
+test "function parameter parsing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const tests = [_]struct {
+        input: []const u8,
+        expectedParams: []const []const u8,
+    }{
+        .{ .input = "fn() {};", .expectedParams = &[_][]const u8{} },
+        .{ .input = "fn(x) {};", .expectedParams = &[_][]const u8{"x"} },
+        .{ .input = "fn(x, y, z) {};", .expectedParams = &[_][]const u8{ "x", "y", "z" } },
+    };
+
+    for (tests) |tt| {
+        var program = try testParseProgram(allocator, tt.input);
+        defer program.node.deinit(allocator);
+
+        const stmt = try expectExpressionStatement(program.statements.items[0]);
+        try std.testing.expect(stmt.expression != null);
+
+        const func = try expectFunctionLiteral(stmt.expression.?, tt.expectedParams.len);
+
+        for (tt.expectedParams, 0..) |ident, i| {
+            try expectLiteral(&func.parameters.items[i].expression, .{ .ident = ident });
+        }
+    }
+}
+
+test "function literal parsing" {
+    const input = "fn (x, y) { x + y;}";
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var program = try testParseProgram(allocator, input);
+    defer program.node.deinit(allocator);
+
+    try expectStatementLength(program, 1);
+
+    const stmt = try expectExpressionStatement(program.statements.items[0]);
+    try std.testing.expect(stmt.expression != null);
+
+    const func = try expectFunctionLiteral(stmt.expression.?, 2);
+
+    try expectLiteral(&func.parameters.items[0].expression, .{ .ident = "x" });
+    try expectLiteral(&func.parameters.items[1].expression, .{ .ident = "y" });
+
+    try std.testing.expect(func.body.statements.items.len == 1);
+    const body = try expectExpressionStatement(func.body.statements.items[0]);
+    try std.testing.expect(body.expression != null);
+    try expectInfixExpression(body.expression.?, .{ .ident = "x" }, "+", .{ .ident = "y" });
 }
 
 test "if else expression" {

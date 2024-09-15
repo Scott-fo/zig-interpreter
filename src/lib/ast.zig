@@ -10,6 +10,7 @@ pub const NodeType = enum {
     PrefixExpression,
     InfixExpression,
     IntegerLiteral,
+    FunctionLiteral,
     Identifier,
     Boolean,
     IfExpression,
@@ -103,7 +104,7 @@ pub const Program = struct {
         const self: *const Self = @fieldParentPtr("node", node);
 
         var buffer = std.ArrayList(u8).init(allocator);
-        defer buffer.deinit();
+        errdefer buffer.deinit();
 
         for (self.statements.items) |stmt| {
             const stmt_string = try stmt.node.string(allocator);
@@ -171,7 +172,7 @@ pub const BlockStatement = struct {
         const self: *const Self = @fieldParentPtr("node", node);
 
         var buffer = std.ArrayList(u8).init(allocator);
-        defer buffer.deinit();
+        errdefer buffer.deinit();
 
         for (self.statements.items) |stmt| {
             const stmt_string = try stmt.node.string(allocator);
@@ -301,11 +302,15 @@ pub const ReturnStatement = struct {
         const self: *const Self = @fieldParentPtr("statement", statement);
 
         var buffer = std.ArrayList(u8).init(allocator);
+        errdefer buffer.deinit();
 
         try buffer.appendSlice(node.tokenLiteral());
         try buffer.append(' ');
         if (self.value) |value| {
-            try buffer.appendSlice(try value.node.string(allocator));
+            const val_str = try value.node.string(allocator);
+            defer allocator.free(val_str);
+
+            try buffer.appendSlice(val_str);
         }
         try buffer.append(';');
 
@@ -372,15 +377,109 @@ pub const LetStatement = struct {
         const self: *const Self = @fieldParentPtr("statement", statement);
 
         var buffer = std.ArrayList(u8).init(allocator);
+        errdefer buffer.deinit();
 
         try buffer.appendSlice(node.tokenLiteral());
         try buffer.append(' ');
-        try buffer.appendSlice(try self.name.expression.node.string(allocator));
+
+        const name_str = try self.name.expression.node.string(allocator);
+        defer allocator.free(name_str);
+
+        try buffer.appendSlice(name_str);
         try buffer.appendSlice(" = ");
         if (self.value) |value| {
-            try buffer.appendSlice(try value.node.string(allocator));
+            const val_str = try value.node.string(allocator);
+            defer allocator.free(val_str);
+
+            try buffer.appendSlice(val_str);
         }
+
         try buffer.append(';');
+        return buffer.toOwnedSlice();
+    }
+};
+
+pub const FunctionLiteral = struct {
+    const Self = @This();
+
+    expression: Expression,
+    token: token.Token,
+    body: *BlockStatement,
+    parameters: std.ArrayList(*Identifier),
+
+    const vtable = Node.VTable{
+        .deinitFn = deinit,
+        .tokenLiteralFn = tokenLiteral,
+        .stringFn = string,
+        .getTypeFn = getType,
+    };
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        tok: token.Token,
+        body: *BlockStatement,
+    ) !*Self {
+        const fl = try allocator.create(Self);
+        fl.* = .{
+            .expression = .{ .node = .{ .vtable = &vtable } },
+            .token = tok,
+            .body = body,
+            .parameters = std.ArrayList(*Identifier).init(allocator),
+        };
+
+        return fl;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const expression: *Expression = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("expression", expression);
+
+        self.body.node.deinit(allocator);
+
+        for (self.parameters.items) |stmt| {
+            stmt.expression.node.deinit(allocator);
+            allocator.destroy(stmt);
+        }
+
+        self.parameters.deinit();
+        allocator.destroy(self);
+    }
+
+    pub fn getType(_: *const Node) NodeType {
+        return .FunctionLiteral;
+    }
+
+    pub fn tokenLiteral(node: *const Node) []const u8 {
+        const expression: *const Expression = @fieldParentPtr("node", node);
+        const self: *const Self = @fieldParentPtr("expression", expression);
+
+        return self.token.toLiteral();
+    }
+
+    pub fn string(node: *const Node, allocator: std.mem.Allocator) ![]const u8 {
+        const expression: *const Expression = @fieldParentPtr("node", node);
+        const self: *const Self = @fieldParentPtr("expression", expression);
+
+        var buffer = std.ArrayList(u8).init(allocator);
+        errdefer buffer.deinit();
+
+        try buffer.appendSlice(self.expression.node.tokenLiteral());
+        try buffer.append('(');
+
+        for (self.parameters.items) |param| {
+            const param_str = try param.expression.node.string(allocator);
+            defer allocator.free(param_str);
+
+            try buffer.appendSlice(param_str);
+            try buffer.append(',');
+        }
+
+        try buffer.append(')');
+
+        const body_str = try self.body.node.string(allocator);
+        defer allocator.free(body_str);
+
+        try buffer.appendSlice(body_str);
 
         return buffer.toOwnedSlice();
     }
