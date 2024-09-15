@@ -19,7 +19,7 @@ const Error = struct {
 const Operator = enum(u8) { LOWEST = 1, EQUALS = 2, LESSGREATER = 3, SUM = 4, PRODUCT = 5, PREFIX = 6, CALL = 7 };
 
 const PrefixParseFn = *const fn (*Parser) anyerror!?*ast.Expression;
-const InfixParseFn = *const fn (ast.Expression) anyerror!?*ast.Expression;
+const InfixParseFn = *const fn (*Parser, *ast.Expression) anyerror!*ast.Expression;
 
 const Parser = struct {
     const Self = @This();
@@ -42,6 +42,16 @@ const Parser = struct {
         try p.registerPrefix(.INT, parseIntegerLiteral);
         try p.registerPrefix(.BANG, parsePrefixExpression);
         try p.registerPrefix(.MINUS, parsePrefixExpression);
+
+        p.infixParseFns = std.AutoHashMap(std.meta.Tag(Token), InfixParseFn).init(allocator);
+        try p.registerInfix(.PLUS, parseInfixExpression);
+        try p.registerInfix(.MINUS, parseInfixExpression);
+        try p.registerInfix(.SLASH, parseInfixExpression);
+        try p.registerInfix(.ASTERISK, parseInfixExpression);
+        try p.registerInfix(.EQ, parseInfixExpression);
+        try p.registerInfix(.NOT_EQ, parseInfixExpression);
+        try p.registerInfix(.LT, parseInfixExpression);
+        try p.registerInfix(.GT, parseInfixExpression);
 
         p.nextToken();
         p.nextToken();
@@ -73,14 +83,32 @@ const Parser = struct {
         return program;
     }
 
-    fn parseExpression(self: *Self, _: Operator) !?*ast.Expression {
+    fn parseExpression(self: *Self, precedence: Operator) !?*ast.Expression {
         const prefix = self.prefixParseFns.get(self.curr_token);
         if (prefix == null) {
             try self.noPrefixParseFnError();
             return null;
         }
 
-        const left_exp = try prefix.?(self);
+        var left_exp = try prefix.?(self);
+        if (left_exp == null) {
+            // How to handle this?
+
+        }
+
+        while (!self.peekTokenIs(.SEMICOLON) and @intFromEnum(precedence) < @intFromEnum(self.peekPrecedence())) {
+            const infix = self.infixParseFns.get(self.peek_token);
+            if (infix == null) {
+                return left_exp;
+            }
+
+            self.nextToken();
+
+            left_exp = try infix.?(self, left_exp.?);
+            if (left_exp == null) {
+                // How to handle this?
+            }
+        }
         return left_exp;
     }
 
@@ -155,6 +183,28 @@ const Parser = struct {
         return std.meta.activeTag(self.curr_token) == t;
     }
 
+    fn getPrecendence(t: Token) Operator {
+        return switch (t) {
+            .EQ => .EQUALS,
+            .NOT_EQ => .EQUALS,
+            .LT => .LESSGREATER,
+            .GT => .LESSGREATER,
+            .PLUS => .SUM,
+            .MINUS => .SUM,
+            .SLASH => .PRODUCT,
+            .ASTERISK => .PRODUCT,
+            else => .LOWEST,
+        };
+    }
+
+    fn curPrecedence(self: *Self) Operator {
+        return getPrecendence(self.curr_token);
+    }
+
+    fn peekPrecedence(self: *Self) Operator {
+        return getPrecendence(self.peek_token);
+    }
+
     fn peekTokenIs(self: *Self, t: std.meta.Tag(Token)) bool {
         return std.meta.activeTag(self.peek_token) == t;
     }
@@ -197,12 +247,35 @@ const Parser = struct {
     }
 };
 
+fn parseInfixExpression(p: *Parser, left: *ast.Expression) !*ast.Expression {
+    const curr = p.curr_token;
+    const operator = p.curr_token.toLiteral();
+    const precendence = p.curPrecedence();
+
+    p.nextToken();
+
+    const right = try p.parseExpression(precendence);
+    if (right == null) {
+        // How to handle this?
+    }
+
+    const ie = try ast.InfixExpression.init(p.allocator, curr, operator, left, right.?);
+    errdefer ie.expression.node.deinit(p.allocator);
+
+    return &ie.expression;
+}
+
 fn parsePrefixExpression(p: *Parser) !?*ast.Expression {
     const curr = p.curr_token;
     const operator = p.curr_token.toLiteral();
 
     p.nextToken();
+
     const right = try p.parseExpression(.PREFIX);
+    if (right == null) {
+        // How to handle this?
+        return null;
+    }
 
     const pe = try ast.PrefixExpression.init(p.allocator, curr, operator, right.?);
     errdefer pe.expression.node.deinit(p.allocator);
@@ -226,10 +299,10 @@ fn parseIntegerLiteral(p: *Parser) !?*ast.Expression {
             error.Overflow => "integer overflow",
         };
 
-        p.errors.append(Error{
+        try p.errors.append(Error{
             .err = ParserError.ParseInt,
             .msg = error_msg,
-        }) catch return null;
+        });
 
         return null;
     };
@@ -249,6 +322,64 @@ fn printError(err: Error) void {
         });
     } else if (err.got != null) {
         std.debug.print(" - got {s}\n", .{@tagName(err.got.?)});
+    }
+}
+
+test "parsing infix expressions" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const tests = [_]struct {
+        input: []const u8,
+        left_value: i64,
+        operator: []const u8,
+        right_value: i64,
+    }{
+        .{ .input = "5 + 5;", .left_value = 5, .operator = "+", .right_value = 5 },
+        .{ .input = "5 - 5;", .left_value = 5, .operator = "-", .right_value = 5 },
+        .{ .input = "5 * 5;", .left_value = 5, .operator = "*", .right_value = 5 },
+        .{ .input = "5 / 5;", .left_value = 5, .operator = "/", .right_value = 5 },
+        .{ .input = "5 > 5;", .left_value = 5, .operator = ">", .right_value = 5 },
+        .{ .input = "5 < 5;", .left_value = 5, .operator = "<", .right_value = 5 },
+        .{ .input = "5 == 5;", .left_value = 5, .operator = "==", .right_value = 5 },
+        .{ .input = "5 != 5;", .left_value = 5, .operator = "!=", .right_value = 5 },
+    };
+
+    for (tests) |tt| {
+        var l = lexer.Lexer.init(tt.input);
+        var p = try Parser.init(allocator, &l);
+        defer p.deinit();
+
+        var program = try p.parseProgram();
+        defer program.node.deinit(allocator);
+
+        const errs = p.getErrors();
+        for (errs) |err| {
+            printError(err);
+        }
+
+        try std.testing.expectEqual(0, p.getErrors().len);
+        try std.testing.expect(program.statements.items.len > 0);
+        try std.testing.expectEqual(1, program.statements.items.len);
+
+        try std.testing.expectEqual(ast.NodeType.ExpressionStatement, program.statements.items[0].node.getType());
+        const expr_stmt: *ast.ExpressionStatement = @fieldParentPtr("statement", program.statements.items[0]);
+        try std.testing.expectEqual(@TypeOf(expr_stmt), *ast.ExpressionStatement);
+
+        try std.testing.expect(expr_stmt.expression != null);
+        try std.testing.expectEqual(ast.NodeType.InfixExpression, expr_stmt.expression.?.node.getType());
+        const ie: *ast.InfixExpression = @fieldParentPtr("expression", expr_stmt.expression.?);
+
+        try std.testing.expectEqual(tt.operator, ie.operator);
+
+        try std.testing.expectEqual(ast.NodeType.IntegerLiteral, ie.left.node.getType());
+        const lil: *ast.IntegerLiteral = @fieldParentPtr("expression", ie.left);
+        try std.testing.expectEqual(tt.left_value, lil.value);
+
+        try std.testing.expectEqual(ast.NodeType.IntegerLiteral, ie.right.node.getType());
+        const ril: *ast.IntegerLiteral = @fieldParentPtr("expression", ie.right);
+        try std.testing.expectEqual(tt.right_value, ril.value);
     }
 }
 

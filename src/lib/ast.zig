@@ -7,6 +7,7 @@ pub const NodeType = enum {
     ReturnStatement,
     LetStatement,
     PrefixExpression,
+    InfixExpression,
     IntegerLiteral,
     Identifier,
 };
@@ -296,6 +297,79 @@ pub const LetStatement = struct {
             try buffer.appendSlice(try value.node.string(allocator));
         }
         try buffer.append(';');
+
+        return buffer.toOwnedSlice();
+    }
+};
+
+pub const InfixExpression = struct {
+    const Self = @This();
+
+    expression: Expression,
+    token: token.Token,
+    left: *Expression,
+    right: *Expression,
+    operator: []const u8,
+
+    const vtable = Node.VTable{
+        .deinitFn = deinit,
+        .tokenLiteralFn = tokenLiteral,
+        .stringFn = string,
+        .getTypeFn = getType,
+    };
+
+    pub fn init(allocator: std.mem.Allocator, tok: token.Token, operator: []const u8, left: *Expression, right: *Expression) !*Self {
+        const expr = try allocator.create(Self);
+        expr.* = .{
+            .expression = .{ .node = .{ .vtable = &vtable } },
+            .token = tok,
+            .operator = operator,
+            .left = left,
+            .right = right,
+        };
+
+        return expr;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const expression: *Expression = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("expression", expression);
+
+        self.right.node.deinit(allocator);
+        self.left.node.deinit(allocator);
+        allocator.destroy(self);
+    }
+
+    pub fn getType(_: *const Node) NodeType {
+        return .InfixExpression;
+    }
+
+    pub fn tokenLiteral(node: *const Node) []const u8 {
+        const expression: *const Expression = @fieldParentPtr("node", node);
+        const self: *const Self = @fieldParentPtr("expression", expression);
+        return self.token.toLiteral();
+    }
+
+    pub fn string(node: *const Node, allocator: std.mem.Allocator) ![]const u8 {
+        const expression: *const Expression = @fieldParentPtr("node", node);
+        const self: *const Self = @fieldParentPtr("expression", expression);
+
+        var buffer = std.ArrayList(u8).init(allocator);
+        errdefer buffer.deinit();
+
+        const left_str = try self.left.node.string(allocator);
+        defer allocator.free(left_str);
+
+        const right_str = try self.right.node.string(allocator);
+        defer allocator.free(right_str);
+
+        try buffer.append('(');
+        try buffer.appendSlice(left_str);
+        try buffer.append(' ');
+        try buffer.appendSlice(self.operator);
+        try buffer.append(' ');
+        try buffer.appendSlice(right_str);
+        try buffer.append(')');
 
         return buffer.toOwnedSlice();
     }
