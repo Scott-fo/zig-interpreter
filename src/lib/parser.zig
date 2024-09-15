@@ -238,10 +238,14 @@ const Parser = struct {
             return null;
         }
 
-        const name = try ast.Identifier.init(self.allocator, self.curr_token, switch (self.curr_token) {
-            .IDENT => |ident| ident,
-            else => unreachable,
-        });
+        const name = try ast.Identifier.init(
+            self.allocator,
+            self.curr_token,
+            switch (self.curr_token) {
+                .IDENT => |ident| ident,
+                else => unreachable,
+            },
+        );
         errdefer name.expression.node.deinit(self.allocator);
 
         if (!try self.expectPeek(.ASSIGN)) {
@@ -256,7 +260,12 @@ const Parser = struct {
             self.nextToken();
         }
 
-        const let_stmt = try ast.LetStatement.init(self.allocator, let_token, name, null);
+        const let_stmt = try ast.LetStatement.init(
+            self.allocator,
+            let_token,
+            name,
+            null,
+        );
         return &let_stmt.statement;
     }
 
@@ -391,7 +400,12 @@ fn expectIdentifier(expr: *ast.Expression, expected: []const u8) !void {
     try std.testing.expectEqualStrings(expected, ident.value);
 }
 
-fn expectInfixExpression(expr: *ast.Expression, left: TestLiteral, op: []const u8, right: TestLiteral) !void {
+fn expectInfixExpression(
+    expr: *ast.Expression,
+    left: TestLiteral,
+    op: []const u8,
+    right: TestLiteral,
+) !void {
     try std.testing.expectEqual(ast.NodeType.InfixExpression, expr.node.getType());
     const ie: *ast.InfixExpression = @ptrCast(expr);
 
@@ -400,7 +414,11 @@ fn expectInfixExpression(expr: *ast.Expression, left: TestLiteral, op: []const u
     try expectLiteral(ie.right, right);
 }
 
-fn expectPrefixExpression(expr: *ast.Expression, op: []const u8, right: TestLiteral) !void {
+fn expectPrefixExpression(
+    expr: *ast.Expression,
+    op: []const u8,
+    right: TestLiteral,
+) !void {
     try std.testing.expectEqual(ast.NodeType.PrefixExpression, expr.node.getType());
     const pe: *ast.PrefixExpression = @ptrCast(expr);
 
@@ -417,23 +435,74 @@ test "operator precedence parsing" {
         input: []const u8,
         expected: []const u8,
     }{
-        .{ .input = "-a * b", .expected = "((-a) * b)" },
-        .{ .input = "!-a", .expected = "(!(-a))" },
-        .{ .input = "a + b + c", .expected = "((a + b) + c)" },
-        .{ .input = "a + b - c", .expected = "((a + b) - c)" },
-        .{ .input = "a * b * c", .expected = "((a * b) * c)" },
-        .{ .input = "a * b / c", .expected = "((a * b) / c)" },
-        .{ .input = "a + b / c", .expected = "(a + (b / c))" },
-        .{ .input = "a + b * c + d / e - f", .expected = "(((a + (b * c)) + (d / e)) - f)" },
-        .{ .input = "3 + 4; -5 * 5", .expected = "(3 + 4)((-5) * 5)" },
-        .{ .input = "5 > 4 == 3 < 4", .expected = "((5 > 4) == (3 < 4))" },
-        .{ .input = "5 < 4 != 3 > 4", .expected = "((5 < 4) != (3 > 4))" },
-        .{ .input = "3 + 4 * 5 == 3 * 1 + 4 * 5", .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))" },
-        .{ .input = "3 + 4 * 5 == 3 * 1 + 4 * 5", .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))" },
-        .{ .input = "true", .expected = "true" },
-        .{ .input = "false", .expected = "false" },
-        .{ .input = "3 > 5 == false", .expected = "((3 > 5) == false)" },
-        .{ .input = "3 < 5 == true", .expected = "((3 < 5) == true)" },
+        .{
+            .input = "-a * b",
+            .expected = "((-a) * b)",
+        },
+        .{
+            .input = "!-a",
+            .expected = "(!(-a))",
+        },
+        .{
+            .input = "a + b + c",
+            .expected = "((a + b) + c)",
+        },
+        .{
+            .input = "a + b - c",
+            .expected = "((a + b) - c)",
+        },
+        .{
+            .input = "a * b * c",
+            .expected = "((a * b) * c)",
+        },
+        .{
+            .input = "a * b / c",
+            .expected = "((a * b) / c)",
+        },
+        .{
+            .input = "a + b / c",
+            .expected = "(a + (b / c))",
+        },
+        .{
+            .input = "a + b * c + d / e - f",
+            .expected = "(((a + (b * c)) + (d / e)) - f)",
+        },
+        .{
+            .input = "3 + 4; -5 * 5",
+            .expected = "(3 + 4)((-5) * 5)",
+        },
+        .{
+            .input = "5 > 4 == 3 < 4",
+            .expected = "((5 > 4) == (3 < 4))",
+        },
+        .{
+            .input = "5 < 4 != 3 > 4",
+            .expected = "((5 < 4) != (3 > 4))",
+        },
+        .{
+            .input = "3 + 4 * 5 == 3 * 1 + 4 * 5",
+            .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+        },
+        .{
+            .input = "3 + 4 * 5 == 3 * 1 + 4 * 5",
+            .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+        },
+        .{
+            .input = "true",
+            .expected = "true",
+        },
+        .{
+            .input = "false",
+            .expected = "false",
+        },
+        .{
+            .input = "3 > 5 == false",
+            .expected = "((3 > 5) == false)",
+        },
+        .{
+            .input = "3 < 5 == true",
+            .expected = "((3 < 5) == true)",
+        },
     };
 
     for (tests) |tt| {
@@ -458,17 +527,72 @@ test "parsing infix expressions" {
         operator: []const u8,
         right_value: TestLiteral,
     }{
-        .{ .input = "5 + 5;", .left_value = .{ .int = 5 }, .operator = "+", .right_value = .{ .int = 5 } },
-        .{ .input = "5 - 5;", .left_value = .{ .int = 5 }, .operator = "-", .right_value = .{ .int = 5 } },
-        .{ .input = "5 * 5;", .left_value = .{ .int = 5 }, .operator = "*", .right_value = .{ .int = 5 } },
-        .{ .input = "5 / 5;", .left_value = .{ .int = 5 }, .operator = "/", .right_value = .{ .int = 5 } },
-        .{ .input = "5 > 5;", .left_value = .{ .int = 5 }, .operator = ">", .right_value = .{ .int = 5 } },
-        .{ .input = "5 < 5;", .left_value = .{ .int = 5 }, .operator = "<", .right_value = .{ .int = 5 } },
-        .{ .input = "5 == 5;", .left_value = .{ .int = 5 }, .operator = "==", .right_value = .{ .int = 5 } },
-        .{ .input = "5 != 5;", .left_value = .{ .int = 5 }, .operator = "!=", .right_value = .{ .int = 5 } },
-        .{ .input = "true == true", .left_value = .{ .boolean = true }, .operator = "==", .right_value = .{ .boolean = true } },
-        .{ .input = "true != false", .left_value = .{ .boolean = true }, .operator = "!=", .right_value = .{ .boolean = false } },
-        .{ .input = "false == false", .left_value = .{ .boolean = false }, .operator = "==", .right_value = .{ .boolean = false } },
+        .{
+            .input = "5 + 5;",
+            .left_value = .{ .int = 5 },
+            .operator = "+",
+            .right_value = .{ .int = 5 },
+        },
+        .{
+            .input = "5 - 5;",
+            .left_value = .{ .int = 5 },
+            .operator = "-",
+            .right_value = .{ .int = 5 },
+        },
+        .{
+            .input = "5 * 5;",
+            .left_value = .{ .int = 5 },
+            .operator = "*",
+            .right_value = .{ .int = 5 },
+        },
+        .{
+            .input = "5 / 5;",
+            .left_value = .{ .int = 5 },
+            .operator = "/",
+            .right_value = .{ .int = 5 },
+        },
+        .{
+            .input = "5 > 5;",
+            .left_value = .{ .int = 5 },
+            .operator = ">",
+            .right_value = .{ .int = 5 },
+        },
+        .{
+            .input = "5 < 5;",
+            .left_value = .{ .int = 5 },
+            .operator = "<",
+            .right_value = .{ .int = 5 },
+        },
+        .{
+            .input = "5 == 5;",
+            .left_value = .{ .int = 5 },
+            .operator = "==",
+            .right_value = .{ .int = 5 },
+        },
+        .{
+            .input = "5 != 5;",
+            .left_value = .{ .int = 5 },
+            .operator = "!=",
+            .right_value = .{ .int = 5 },
+        },
+        .{
+            .input = "true == true",
+            .left_value = .{ .boolean = true },
+            .operator = "==",
+            .right_value = .{ .boolean = true },
+        },
+        .{
+            .input = "true != false",
+            .left_value = .{ .boolean = true },
+            .operator = "!=",
+            .right_value = .{ .boolean = false },
+        },
+        .{
+            .input = "false == false",
+            .left_value = .{ .boolean = false },
+            .operator = "==",
+            .right_value = .{ .boolean = false },
+        },
     };
 
     for (tests) |tt| {
@@ -605,6 +729,9 @@ test "let statement" {
 
         try std.testing.expectEqualStrings("let", stmt.node.tokenLiteral());
         try std.testing.expectEqualStrings(expected_identifiers[i], stmt_cast.name.value);
-        try std.testing.expectEqualStrings(expected_identifiers[i], stmt_cast.name.expression.node.tokenLiteral());
+        try std.testing.expectEqualStrings(
+            expected_identifiers[i],
+            stmt_cast.name.expression.node.tokenLiteral(),
+        );
     }
 }

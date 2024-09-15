@@ -128,7 +128,11 @@ pub const ExpressionStatement = struct {
         .getTypeFn = getType,
     };
 
-    pub fn init(allocator: std.mem.Allocator, tok: token.Token, expression: ?*Expression) !*Self {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        tok: token.Token,
+        expression: ?*Expression,
+    ) !*Self {
         const stmt = try allocator.create(Self);
         stmt.* = .{
             .statement = .{ .node = .{ .vtable = &vtable } },
@@ -186,7 +190,11 @@ pub const ReturnStatement = struct {
         .getTypeFn = getType,
     };
 
-    pub fn init(allocator: std.mem.Allocator, tok: token.Token, value: ?*Expression) !*Self {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        tok: token.Token,
+        value: ?*Expression,
+    ) !*Self {
         const stmt = try allocator.create(Self);
         stmt.* = .{
             .statement = .{ .node = .{ .vtable = &vtable } },
@@ -470,7 +478,11 @@ pub const Boolean = struct {
         .getTypeFn = getType,
     };
 
-    pub fn init(allocator: std.mem.Allocator, tok: token.Token, value: bool) !*Self {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        tok: token.Token,
+        value: bool,
+    ) !*Self {
         const expr = try allocator.create(Self);
         expr.* = .{
             .expression = .{ .node = .{ .vtable = &vtable } },
@@ -516,7 +528,11 @@ pub const IntegerLiteral = struct {
         .getTypeFn = getType,
     };
 
-    pub fn init(allocator: std.mem.Allocator, tok: token.Token, value: ?i64) !*Self {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        tok: token.Token,
+        value: ?i64,
+    ) !*Self {
         const expr = try allocator.create(Self);
         expr.* = .{
             .expression = .{ .node = .{ .vtable = &vtable } },
@@ -562,7 +578,11 @@ pub const Identifier = struct {
         .getTypeFn = getType,
     };
 
-    pub fn init(allocator: std.mem.Allocator, tok: token.Token, value: []const u8) !*Self {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        tok: token.Token,
+        value: []const u8,
+    ) !*Self {
         const identifier = try allocator.create(Identifier);
         identifier.* = .{
             .expression = .{ .node = .{ .vtable = &vtable } },
