@@ -290,9 +290,10 @@ const Parser = struct {
     fn parseReturnStatement(self: *Self) !?*ast.Statement {
         const stmt = try ast.ReturnStatement.init(self.allocator, self.curr_token, null);
         errdefer stmt.statement.node.deinit(self.allocator);
+
         self.nextToken();
 
-        while (!self.currTokenIs(.SEMICOLON)) {
+        if (self.peekTokenIs(.SEMICOLON)) {
             self.nextToken();
         }
 
@@ -301,6 +302,7 @@ const Parser = struct {
 
     fn parseLetStatement(self: *Self) !?*ast.Statement {
         const let_token = self.curr_token;
+
         if (!try self.expectPeek(.IDENT)) {
             return null;
         }
@@ -319,11 +321,11 @@ const Parser = struct {
             return null;
         }
 
-        while (!self.currTokenIs(.SEMICOLON)) {
-            if (self.currTokenIs(.EOF)) {
-                return null;
-            }
+        self.nextToken();
 
+        const value = try self.parseExpression(.LOWEST);
+
+        if (self.peekTokenIs(.SEMICOLON)) {
             self.nextToken();
         }
 
@@ -331,7 +333,7 @@ const Parser = struct {
             self.allocator,
             let_token,
             name,
-            null,
+            value,
         );
         return &let_stmt.statement;
     }
