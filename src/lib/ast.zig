@@ -319,7 +319,7 @@ pub const PrefixExpression = struct {
     pub fn init(allocator: std.mem.Allocator, tok: token.Token, operator: []const u8, right: *Expression) !*Self {
         const expr = try allocator.create(Self);
         expr.* = .{
-            .statement = .{ .node = .{ .vtable = &vtable } },
+            .expression = .{ .node = .{ .vtable = &vtable } },
             .token = tok,
             .operator = operator,
             .right = right,
@@ -332,10 +332,7 @@ pub const PrefixExpression = struct {
         const expression: *Expression = @fieldParentPtr("node", node);
         const self: *Self = @fieldParentPtr("expression", expression);
 
-        if (self.right) |r| {
-            r.node.deinit(allocator);
-        }
-
+        self.right.node.deinit(allocator);
         allocator.destroy(self);
     }
 
@@ -344,21 +341,21 @@ pub const PrefixExpression = struct {
     }
 
     pub fn tokenLiteral(node: *const Node) []const u8 {
-        const expression: *Expression = @fieldParentPtr("node", node);
-        const self: *Self = @fieldParentPtr("expression", expression);
+        const expression: *const Expression = @fieldParentPtr("node", node);
+        const self: *const Self = @fieldParentPtr("expression", expression);
         return self.token.toLiteral();
     }
 
     pub fn string(node: *const Node, allocator: std.mem.Allocator) ![]const u8 {
-        const expression: *Expression = @fieldParentPtr("node", node);
-        const self: *Self = @fieldParentPtr("expression", expression);
+        const expression: *const Expression = @fieldParentPtr("node", node);
+        const self: *const Self = @fieldParentPtr("expression", expression);
 
         var buffer = std.ArrayList(u8).init(allocator);
         errdefer buffer.deinit();
 
         try buffer.append('(');
         try buffer.appendSlice(self.operator);
-        const right_str = self.right.string(allocator);
+        const right_str = try self.right.node.string(allocator);
         defer allocator.free(right_str);
 
         try buffer.appendSlice(right_str);

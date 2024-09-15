@@ -5,6 +5,7 @@ const std = @import("std");
 
 const ParserError = error{
     UnexpectedToken,
+    NoPrefixParseFunction,
     ParseInt,
 };
 
@@ -39,6 +40,8 @@ const Parser = struct {
         p.prefixParseFns = std.AutoHashMap(std.meta.Tag(Token), PrefixParseFn).init(allocator);
         try p.registerPrefix(.IDENT, parseIdentifier);
         try p.registerPrefix(.INT, parseIntegerLiteral);
+        try p.registerPrefix(.BANG, parsePrefixExpression);
+        try p.registerPrefix(.MINUS, parsePrefixExpression);
 
         p.nextToken();
         p.nextToken();
@@ -73,6 +76,7 @@ const Parser = struct {
     fn parseExpression(self: *Self, _: Operator) !?*ast.Expression {
         const prefix = self.prefixParseFns.get(self.curr_token);
         if (prefix == null) {
+            try self.noPrefixParseFnError();
             return null;
         }
 
@@ -173,6 +177,13 @@ const Parser = struct {
         });
     }
 
+    fn noPrefixParseFnError(self: *Self) !void {
+        try self.errors.append(Error{
+            .err = ParserError.NoPrefixParseFunction,
+            .got = self.curr_token,
+        });
+    }
+
     pub fn getErrors(self: *Self) []const Error {
         return self.errors.items;
     }
@@ -185,6 +196,19 @@ const Parser = struct {
         try self.infixParseFns.put(t, f);
     }
 };
+
+fn parsePrefixExpression(p: *Parser) !?*ast.Expression {
+    const curr = p.curr_token;
+    const operator = p.curr_token.toLiteral();
+
+    p.nextToken();
+    const right = try p.parseExpression(.PREFIX);
+
+    const pe = try ast.PrefixExpression.init(p.allocator, curr, operator, right.?);
+    errdefer pe.expression.node.deinit(p.allocator);
+
+    return &pe.expression;
+}
 
 fn parseIdentifier(p: *Parser) !?*ast.Expression {
     const i = try ast.Identifier.init(p.allocator, p.curr_token, p.curr_token.toLiteral());
@@ -223,6 +247,8 @@ fn printError(err: Error) void {
             @tagName(err.expected.?),
             @tagName(err.got.?),
         });
+    } else if (err.got != null) {
+        std.debug.print(" - got {s}\n", .{@tagName(err.got.?)});
     }
 }
 
