@@ -312,6 +312,62 @@ fn printError(err: Error) void {
     }
 }
 
+fn testParseProgram(allocator: std.mem.Allocator, input: []const u8) !*ast.Program {
+    var l = lexer.Lexer.init(input);
+    var p = try Parser.init(allocator, &l);
+    errdefer p.deinit();
+
+    var program = try p.parseProgram();
+    errdefer program.node.deinit(allocator);
+
+    const errs = p.getErrors();
+    for (errs) |err| {
+        printError(err);
+    }
+
+    try std.testing.expectEqual(0, p.getErrors().len);
+    return program;
+}
+
+fn expectStatementLength(program: *ast.Program, length: usize) !void {
+    try std.testing.expect(program.statements.items.len > 0);
+    try std.testing.expectEqual(length, program.statements.items.len);
+}
+
+fn expectExpressionStatement(stmt: *ast.Statement) !*ast.ExpressionStatement {
+    try std.testing.expectEqual(ast.NodeType.ExpressionStatement, stmt.node.getType());
+    return @ptrCast(stmt);
+}
+
+fn expectIntegerLiteral(expr: *ast.Expression, expected: i64) !void {
+    try std.testing.expectEqual(ast.NodeType.IntegerLiteral, expr.node.getType());
+    const il: *ast.IntegerLiteral = @ptrCast(expr);
+    try std.testing.expectEqual(expected, il.value);
+}
+
+fn expectIdentifier(expr: *ast.Expression, expected: []const u8) !void {
+    try std.testing.expectEqual(ast.NodeType.Identifier, expr.node.getType());
+    const ident: *ast.Identifier = @ptrCast(expr);
+    try std.testing.expectEqualStrings(expected, ident.value);
+}
+
+fn expectInfixExpression(expr: *ast.Expression, left: i64, op: []const u8, right: i64) !void {
+    try std.testing.expectEqual(ast.NodeType.InfixExpression, expr.node.getType());
+    const ie: *ast.InfixExpression = @ptrCast(expr);
+
+    try std.testing.expectEqualStrings(op, ie.operator);
+    try expectIntegerLiteral(ie.left, left);
+    try expectIntegerLiteral(ie.right, right);
+}
+
+fn expectPrefixExpression(expr: *ast.Expression, op: []const u8, right: i64) !void {
+    try std.testing.expectEqual(ast.NodeType.PrefixExpression, expr.node.getType());
+    const pe: *ast.PrefixExpression = @ptrCast(expr);
+
+    try std.testing.expectEqualStrings(op, pe.operator);
+    try expectIntegerLiteral(pe.right, right);
+}
+
 test "operator precedence parsing" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -337,19 +393,9 @@ test "operator precedence parsing" {
     };
 
     for (tests) |tt| {
-        var l = lexer.Lexer.init(tt.input);
-        var p = try Parser.init(allocator, &l);
-        defer p.deinit();
-
-        var program = try p.parseProgram();
+        var program = try testParseProgram(allocator, tt.input);
         defer program.node.deinit(allocator);
 
-        const errs = p.getErrors();
-        for (errs) |err| {
-            printError(err);
-        }
-
-        try std.testing.expectEqual(0, p.getErrors().len);
         const actual = try program.node.string(allocator);
         defer allocator.free(actual);
 
@@ -379,39 +425,13 @@ test "parsing infix expressions" {
     };
 
     for (tests) |tt| {
-        var l = lexer.Lexer.init(tt.input);
-        var p = try Parser.init(allocator, &l);
-        defer p.deinit();
-
-        var program = try p.parseProgram();
+        var program = try testParseProgram(allocator, tt.input);
         defer program.node.deinit(allocator);
+        try expectStatementLength(program, 1);
 
-        const errs = p.getErrors();
-        for (errs) |err| {
-            printError(err);
-        }
-
-        try std.testing.expectEqual(0, p.getErrors().len);
-        try std.testing.expect(program.statements.items.len > 0);
-        try std.testing.expectEqual(1, program.statements.items.len);
-
-        try std.testing.expectEqual(ast.NodeType.ExpressionStatement, program.statements.items[0].node.getType());
-        const expr_stmt: *ast.ExpressionStatement = @fieldParentPtr("statement", program.statements.items[0]);
-        try std.testing.expectEqual(@TypeOf(expr_stmt), *ast.ExpressionStatement);
-
-        try std.testing.expect(expr_stmt.expression != null);
-        try std.testing.expectEqual(ast.NodeType.InfixExpression, expr_stmt.expression.?.node.getType());
-        const ie: *ast.InfixExpression = @fieldParentPtr("expression", expr_stmt.expression.?);
-
-        try std.testing.expectEqual(tt.operator, ie.operator);
-
-        try std.testing.expectEqual(ast.NodeType.IntegerLiteral, ie.left.node.getType());
-        const lil: *ast.IntegerLiteral = @fieldParentPtr("expression", ie.left);
-        try std.testing.expectEqual(tt.left_value, lil.value);
-
-        try std.testing.expectEqual(ast.NodeType.IntegerLiteral, ie.right.node.getType());
-        const ril: *ast.IntegerLiteral = @fieldParentPtr("expression", ie.right);
-        try std.testing.expectEqual(tt.right_value, ril.value);
+        const stmt = try expectExpressionStatement(program.statements.items[0]);
+        try std.testing.expect(stmt.expression != null);
+        try expectInfixExpression(stmt.expression.?, tt.left_value, tt.operator, tt.right_value);
     }
 }
 
@@ -430,33 +450,13 @@ test "parsing prefix expressions" {
     };
 
     for (tests) |tt| {
-        var l = lexer.Lexer.init(tt.input);
-        var p = try Parser.init(allocator, &l);
-        defer p.deinit();
-
-        var program = try p.parseProgram();
+        var program = try testParseProgram(allocator, tt.input);
         defer program.node.deinit(allocator);
 
-        const errs = p.getErrors();
-        for (errs) |err| {
-            printError(err);
-        }
-
-        try std.testing.expectEqual(0, p.getErrors().len);
-        try std.testing.expect(program.statements.items.len > 0);
-        try std.testing.expectEqual(1, program.statements.items.len);
-
-        try std.testing.expectEqual(ast.NodeType.ExpressionStatement, program.statements.items[0].node.getType());
-        const expr_stmt: *ast.ExpressionStatement = @fieldParentPtr("statement", program.statements.items[0]);
-        try std.testing.expectEqual(@TypeOf(expr_stmt), *ast.ExpressionStatement);
-
-        try std.testing.expect(expr_stmt.expression != null);
-        try std.testing.expectEqual(ast.NodeType.PrefixExpression, expr_stmt.expression.?.node.getType());
-        const pe: *ast.PrefixExpression = @fieldParentPtr("expression", expr_stmt.expression.?);
-
-        try std.testing.expectEqual(ast.NodeType.IntegerLiteral, pe.right.node.getType());
-        const il: *ast.IntegerLiteral = @fieldParentPtr("expression", pe.right);
-        try std.testing.expectEqual(tt.iv, il.value);
+        try expectStatementLength(program, 1);
+        const stmt = try expectExpressionStatement(program.statements.items[0]);
+        try std.testing.expect(stmt.expression != null);
+        try expectPrefixExpression(stmt.expression.?, tt.operator, tt.iv);
     }
 }
 
@@ -467,31 +467,14 @@ test "integer literal expr" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var l = lexer.Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
-    defer p.deinit();
-
-    var program = try p.parseProgram();
+    var program = try testParseProgram(allocator, input);
     defer program.node.deinit(allocator);
 
-    const errs = p.getErrors();
-    for (errs) |err| {
-        printError(err);
-    }
+    try expectStatementLength(program, 1);
 
-    try std.testing.expectEqual(0, p.getErrors().len);
-    try std.testing.expect(program.statements.items.len > 0);
-    try std.testing.expectEqual(@as(usize, 1), program.statements.items.len);
-
-    try std.testing.expectEqual(ast.NodeType.ExpressionStatement, program.statements.items[0].node.getType());
-    const stmt: *ast.ExpressionStatement = @ptrCast(program.statements.items[0]);
-
+    const stmt = try expectExpressionStatement(program.statements.items[0]);
     try std.testing.expect(stmt.expression != null);
-    try std.testing.expectEqual(ast.NodeType.IntegerLiteral, stmt.expression.?.node.getType());
-    const expr: *ast.IntegerLiteral = @ptrCast(stmt.expression.?);
-
-    const literal = expr.value;
-    try std.testing.expectEqual(5, literal.?);
+    try expectIntegerLiteral(stmt.expression.?, 5);
 }
 
 test "identifier" {
@@ -501,31 +484,14 @@ test "identifier" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var l = lexer.Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
-    defer p.deinit();
-
-    var program = try p.parseProgram();
+    var program = try testParseProgram(allocator, input);
     defer program.node.deinit(allocator);
 
-    const errs = p.getErrors();
-    for (errs) |err| {
-        printError(err);
-    }
+    try expectStatementLength(program, 1);
 
-    try std.testing.expectEqual(0, p.getErrors().len);
-    try std.testing.expect(program.statements.items.len > 0);
-    try std.testing.expectEqual(@as(usize, 1), program.statements.items.len);
-
-    try std.testing.expectEqual(ast.NodeType.ExpressionStatement, program.statements.items[0].node.getType());
-    const stmt: *ast.ExpressionStatement = @ptrCast(program.statements.items[0]);
-
+    const stmt = try expectExpressionStatement(program.statements.items[0]);
     try std.testing.expect(stmt.expression != null);
-    try std.testing.expectEqual(ast.NodeType.Identifier, stmt.expression.?.node.getType());
-    const expr: *ast.Identifier = @ptrCast(stmt.expression.?);
-
-    const ident = expr.value;
-    try std.testing.expectEqualStrings("foobar", ident);
+    try expectIdentifier(stmt.expression.?, "foobar");
 }
 
 test "return statement" {
@@ -539,21 +505,10 @@ test "return statement" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var l = lexer.Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
-    defer p.deinit();
-
-    var program = try p.parseProgram();
+    var program = try testParseProgram(allocator, input);
     defer program.node.deinit(allocator);
 
-    const errs = p.getErrors();
-    for (errs) |err| {
-        printError(err);
-    }
-
-    try std.testing.expectEqual(0, p.getErrors().len);
-    try std.testing.expect(program.statements.items.len > 0);
-    try std.testing.expectEqual(@as(usize, 3), program.statements.items.len);
+    try expectStatementLength(program, 3);
 
     for (program.statements.items) |stmt| {
         try std.testing.expectEqual(ast.NodeType.ReturnStatement, stmt.node.getType());
@@ -572,21 +527,9 @@ test "let statement" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var l = lexer.Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
-    defer p.deinit();
-
-    var program = try p.parseProgram();
+    var program = try testParseProgram(allocator, input);
     defer program.node.deinit(allocator);
-
-    const errs = p.getErrors();
-    for (errs) |err| {
-        printError(err);
-    }
-
-    try std.testing.expectEqual(0, p.getErrors().len);
-    try std.testing.expect(program.statements.items.len > 0);
-    try std.testing.expectEqual(@as(usize, 3), program.statements.items.len);
+    try expectStatementLength(program, 3);
 
     const expected_identifiers = [_][]const u8{ "x", "y", "foobar" };
 
