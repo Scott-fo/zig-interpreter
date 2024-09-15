@@ -67,7 +67,7 @@ fn parseInfixExpression(p: *Parser, left: *ast.Expression) !?*ast.Expression {
 }
 
 fn parseBlockStatement(p: *Parser) !*ast.BlockStatement {
-    var block = try ast.BlockStatement.init(p.allocator);
+    var block = try ast.BlockStatement.init(p.allocator, p.curr_token);
     errdefer block.node.deinit(p.allocator);
 
     p.nextToken();
@@ -107,7 +107,18 @@ fn parseIfExpression(p: *Parser) !?*ast.Expression {
 
     const consequence = try parseBlockStatement(p);
 
-    const ie = try ast.IfExpression.init(p.allocator, curr, condition.?, consequence, null);
+    var alternative: ?*ast.BlockStatement = null;
+    if (p.peekTokenIs(.ELSE)) {
+        p.nextToken();
+
+        if (!try p.expectPeek(.LBRACE)) {
+            return null;
+        }
+
+        alternative = try parseBlockStatement(p);
+    }
+
+    const ie = try ast.IfExpression.init(p.allocator, curr, condition.?, consequence, alternative);
     errdefer ie.expression.node.deinit(p.allocator);
 
     return &ie.expression;
@@ -267,15 +278,9 @@ const Parser = struct {
         var stmt = try ast.ExpressionStatement.init(self.allocator, self.curr_token, null);
         errdefer stmt.statement.node.deinit(self.allocator);
 
-        const exp = try self.parseExpression(.LOWEST);
-        if (exp == null) {
-            stmt.statement.node.deinit(self.allocator);
-            return null;
-        }
+        stmt.expression = try self.parseExpression(.LOWEST);
 
-        stmt.expression = exp;
-
-        while (!self.currTokenIs(.SEMICOLON) and !self.currTokenIs(.EOF)) {
+        if (self.peekTokenIs(.SEMICOLON)) {
             self.nextToken();
         }
 
@@ -493,6 +498,37 @@ fn expectPrefixExpression(
 
     try std.testing.expectEqualStrings(op, pe.operator);
     try expectLiteral(pe.right, right);
+}
+
+test "if else expression" {
+    const input = "if (a < b) { a } else { b }";
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var program = try testParseProgram(allocator, input);
+    defer program.node.deinit(allocator);
+
+    try expectStatementLength(program, 1);
+
+    const stmt = try expectExpressionStatement(program.statements.items[0]);
+    try std.testing.expect(stmt.expression != null);
+    const expr = try expectIfExpression(stmt.expression.?);
+
+    try expectInfixExpression(expr.condition, .{ .ident = "a" }, "<", .{ .ident = "b" });
+    try std.testing.expect(expr.consequence.statements.items.len == 1);
+
+    const consequence = try expectExpressionStatement(expr.consequence.statements.items[0]);
+    try std.testing.expect(consequence.expression != null);
+
+    try expectIdentifier(consequence.expression.?, "a");
+    try std.testing.expect(expr.alternative != null);
+    try std.testing.expect(expr.alternative.?.statements.items.len == 1);
+
+    const alternative = try expectExpressionStatement(expr.alternative.?.statements.items[0]);
+    try std.testing.expect(alternative.expression != null);
+    try expectIdentifier(alternative.expression.?, "b");
 }
 
 test "if expression" {

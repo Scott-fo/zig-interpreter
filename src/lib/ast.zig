@@ -120,6 +120,7 @@ pub const BlockStatement = struct {
     const Self = @This();
 
     node: Node,
+    token: token.Token,
     statements: std.ArrayList(*Statement),
 
     const vtable = Node.VTable{
@@ -129,10 +130,11 @@ pub const BlockStatement = struct {
         .getTypeFn = getType,
     };
 
-    pub fn init(allocator: std.mem.Allocator) !*Self {
+    pub fn init(allocator: std.mem.Allocator, tok: token.Token) !*Self {
         const bs = try allocator.create(Self);
         bs.* = .{
             .node = .{ .vtable = &vtable },
+            .token = tok,
             .statements = std.ArrayList(*Statement).init(allocator),
         };
 
