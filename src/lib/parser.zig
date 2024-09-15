@@ -35,6 +35,7 @@ fn getPrefixFn(t: std.meta.Tag(Token)) ?PrefixParseFn {
         .INT => parseIntegerLiteral,
         .BANG, .MINUS => parsePrefixExpression,
         .TRUE, .FALSE => parseBoolean,
+        .LPAREN => parseGroupedExpression,
         else => null,
     };
 }
@@ -62,6 +63,19 @@ fn parseInfixExpression(p: *Parser, left: *ast.Expression) !?*ast.Expression {
     errdefer ie.expression.node.deinit(p.allocator);
 
     return &ie.expression;
+}
+
+fn parseGroupedExpression(p: *Parser) !?*ast.Expression {
+    p.nextToken();
+
+    const exp = p.parseExpression(.LOWEST);
+
+    const closed = try p.expectPeek(.RPAREN);
+    if (!closed) {
+        return null;
+    }
+
+    return exp;
 }
 
 fn parsePrefixExpression(p: *Parser) !?*ast.Expression {
@@ -435,74 +449,28 @@ test "operator precedence parsing" {
         input: []const u8,
         expected: []const u8,
     }{
-        .{
-            .input = "-a * b",
-            .expected = "((-a) * b)",
-        },
-        .{
-            .input = "!-a",
-            .expected = "(!(-a))",
-        },
-        .{
-            .input = "a + b + c",
-            .expected = "((a + b) + c)",
-        },
-        .{
-            .input = "a + b - c",
-            .expected = "((a + b) - c)",
-        },
-        .{
-            .input = "a * b * c",
-            .expected = "((a * b) * c)",
-        },
-        .{
-            .input = "a * b / c",
-            .expected = "((a * b) / c)",
-        },
-        .{
-            .input = "a + b / c",
-            .expected = "(a + (b / c))",
-        },
-        .{
-            .input = "a + b * c + d / e - f",
-            .expected = "(((a + (b * c)) + (d / e)) - f)",
-        },
-        .{
-            .input = "3 + 4; -5 * 5",
-            .expected = "(3 + 4)((-5) * 5)",
-        },
-        .{
-            .input = "5 > 4 == 3 < 4",
-            .expected = "((5 > 4) == (3 < 4))",
-        },
-        .{
-            .input = "5 < 4 != 3 > 4",
-            .expected = "((5 < 4) != (3 > 4))",
-        },
-        .{
-            .input = "3 + 4 * 5 == 3 * 1 + 4 * 5",
-            .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
-        },
-        .{
-            .input = "3 + 4 * 5 == 3 * 1 + 4 * 5",
-            .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
-        },
-        .{
-            .input = "true",
-            .expected = "true",
-        },
-        .{
-            .input = "false",
-            .expected = "false",
-        },
-        .{
-            .input = "3 > 5 == false",
-            .expected = "((3 > 5) == false)",
-        },
-        .{
-            .input = "3 < 5 == true",
-            .expected = "((3 < 5) == true)",
-        },
+        .{ .input = "-a * b", .expected = "((-a) * b)" },
+        .{ .input = "!-a", .expected = "(!(-a))" },
+        .{ .input = "a + b + c", .expected = "((a + b) + c)" },
+        .{ .input = "a + b - c", .expected = "((a + b) - c)" },
+        .{ .input = "a * b * c", .expected = "((a * b) * c)" },
+        .{ .input = "a * b / c", .expected = "((a * b) / c)" },
+        .{ .input = "a + b / c", .expected = "(a + (b / c))" },
+        .{ .input = "a + b * c + d / e - f", .expected = "(((a + (b * c)) + (d / e)) - f)" },
+        .{ .input = "3 + 4; -5 * 5", .expected = "(3 + 4)((-5) * 5)" },
+        .{ .input = "5 > 4 == 3 < 4", .expected = "((5 > 4) == (3 < 4))" },
+        .{ .input = "5 < 4 != 3 > 4", .expected = "((5 < 4) != (3 > 4))" },
+        .{ .input = "3 + 4 * 5 == 3 * 1 + 4 * 5", .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))" },
+        .{ .input = "3 + 4 * 5 == 3 * 1 + 4 * 5", .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))" },
+        .{ .input = "true", .expected = "true" },
+        .{ .input = "false", .expected = "false" },
+        .{ .input = "3 > 5 == false", .expected = "((3 > 5) == false)" },
+        .{ .input = "3 < 5 == true", .expected = "((3 < 5) == true)" },
+        .{ .input = "1 + (2 + 3) + 4", .expected = "((1 + (2 + 3)) + 4)" },
+        .{ .input = "(5 + 5) * 2", .expected = "((5 + 5) * 2)" },
+        .{ .input = "2 / (5 + 5)", .expected = "(2 / (5 + 5))" },
+        .{ .input = "-(5 + 5)", .expected = "(-(5 + 5))" },
+        .{ .input = "!(true == true)", .expected = "(!(true == true))" },
     };
 
     for (tests) |tt| {
