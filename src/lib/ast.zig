@@ -10,6 +10,7 @@ pub const NodeType = enum {
     InfixExpression,
     IntegerLiteral,
     Identifier,
+    Boolean,
 };
 
 pub const Node = struct {
@@ -249,7 +250,12 @@ pub const LetStatement = struct {
         .getTypeFn = getType,
     };
 
-    pub fn init(allocator: std.mem.Allocator, tok: token.Token, name: *Identifier, value: ?*Expression) !*Self {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        tok: token.Token,
+        name: *Identifier,
+        value: ?*Expression,
+    ) !*Self {
         const let_stmt = try allocator.create(Self);
         let_stmt.* = .{
             .statement = .{ .node = .{ .vtable = &vtable } },
@@ -318,7 +324,13 @@ pub const InfixExpression = struct {
         .getTypeFn = getType,
     };
 
-    pub fn init(allocator: std.mem.Allocator, tok: token.Token, operator: []const u8, left: *Expression, right: *Expression) !*Self {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        tok: token.Token,
+        operator: []const u8,
+        left: *Expression,
+        right: *Expression,
+    ) !*Self {
         const expr = try allocator.create(Self);
         expr.* = .{
             .expression = .{ .node = .{ .vtable = &vtable } },
@@ -390,7 +402,12 @@ pub const PrefixExpression = struct {
         .getTypeFn = getType,
     };
 
-    pub fn init(allocator: std.mem.Allocator, tok: token.Token, operator: []const u8, right: *Expression) !*Self {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        tok: token.Token,
+        operator: []const u8,
+        right: *Expression,
+    ) !*Self {
         const expr = try allocator.create(Self);
         expr.* = .{
             .expression = .{ .node = .{ .vtable = &vtable } },
@@ -436,6 +453,52 @@ pub const PrefixExpression = struct {
         try buffer.append(')');
 
         return buffer.toOwnedSlice();
+    }
+};
+
+pub const Boolean = struct {
+    const Self = @This();
+
+    expression: Expression,
+    token: token.Token,
+    value: bool,
+
+    const vtable = Node.VTable{
+        .deinitFn = deinit,
+        .tokenLiteralFn = tokenLiteral,
+        .stringFn = string,
+        .getTypeFn = getType,
+    };
+
+    pub fn init(allocator: std.mem.Allocator, tok: token.Token, value: bool) !*Self {
+        const expr = try allocator.create(Self);
+        expr.* = .{
+            .expression = .{ .node = .{ .vtable = &vtable } },
+            .token = tok,
+            .value = value,
+        };
+
+        return expr;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const expression: *Expression = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("expression", expression);
+        allocator.destroy(self);
+    }
+
+    pub fn getType(_: *const Node) NodeType {
+        return .Boolean;
+    }
+
+    pub fn tokenLiteral(node: *const Node) []const u8 {
+        const expression: *const Expression = @fieldParentPtr("node", node);
+        const self: *const Self = @fieldParentPtr("expression", expression);
+        return self.token.toLiteral();
+    }
+
+    pub fn string(node: *const Node, allocator: std.mem.Allocator) ![]const u8 {
+        return allocator.dupe(u8, node.tokenLiteral());
     }
 };
 

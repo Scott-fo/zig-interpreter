@@ -16,7 +16,15 @@ const Error = struct {
     msg: ?[]const u8 = null,
 };
 
-const Operator = enum(u8) { LOWEST = 1, EQUALS = 2, LESSGREATER = 3, SUM = 4, PRODUCT = 5, PREFIX = 6, CALL = 7 };
+const Operator = enum(u8) {
+    LOWEST = 1,
+    EQUALS = 2,
+    LESSGREATER = 3,
+    SUM = 4,
+    PRODUCT = 5,
+    PREFIX = 6,
+    CALL = 7,
+};
 
 const PrefixParseFn = *const fn (*Parser) anyerror!?*ast.Expression;
 const InfixParseFn = *const fn (*Parser, *ast.Expression) anyerror!?*ast.Expression;
@@ -26,6 +34,7 @@ fn getPrefixFn(t: std.meta.Tag(Token)) ?PrefixParseFn {
         .IDENT => parseIdentifier,
         .INT => parseIntegerLiteral,
         .BANG, .MINUS => parsePrefixExpression,
+        .TRUE, .FALSE => parseBoolean,
         else => null,
     };
 }
@@ -78,6 +87,13 @@ fn parseIdentifier(p: *Parser) !?*ast.Expression {
     return &i.expression;
 }
 
+fn parseBoolean(p: *Parser) !?*ast.Expression {
+    const b = try ast.Boolean.init(p.allocator, p.curr_token, p.currTokenIs(.TRUE));
+    errdefer b.expression.node.deinit(p.allocator);
+
+    return &b.expression;
+}
+
 fn parseIntegerLiteral(p: *Parser) !?*ast.Expression {
     var lit = try ast.IntegerLiteral.init(p.allocator, p.curr_token, null);
     errdefer lit.expression.node.deinit(p.allocator);
@@ -111,7 +127,13 @@ const Parser = struct {
 
     pub fn init(allocator: std.mem.Allocator, l: *lexer.Lexer) !Self {
         const e = std.ArrayList(Error).init(allocator);
-        var p = Parser{ .l = l, .curr_token = undefined, .peek_token = undefined, .errors = e, .allocator = allocator };
+        var p = Parser{
+            .l = l,
+            .curr_token = undefined,
+            .peek_token = undefined,
+            .errors = e,
+            .allocator = allocator,
+        };
 
         p.nextToken();
         p.nextToken();
@@ -339,6 +361,12 @@ fn expectExpressionStatement(stmt: *ast.Statement) !*ast.ExpressionStatement {
     return @ptrCast(stmt);
 }
 
+fn expectBoolean(expr: *ast.Expression, expected: bool) !void {
+    try std.testing.expectEqual(ast.NodeType.Boolean, expr.node.getType());
+    const il: *ast.Boolean = @ptrCast(expr);
+    try std.testing.expectEqual(expected, il.value);
+}
+
 fn expectIntegerLiteral(expr: *ast.Expression, expected: i64) !void {
     try std.testing.expectEqual(ast.NodeType.IntegerLiteral, expr.node.getType());
     const il: *ast.IntegerLiteral = @ptrCast(expr);
@@ -458,6 +486,23 @@ test "parsing prefix expressions" {
         try std.testing.expect(stmt.expression != null);
         try expectPrefixExpression(stmt.expression.?, tt.operator, tt.iv);
     }
+}
+
+test "boolean literal expr" {
+    const input = "true";
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var program = try testParseProgram(allocator, input);
+    defer program.node.deinit(allocator);
+
+    try expectStatementLength(program, 1);
+
+    const stmt = try expectExpressionStatement(program.statements.items[0]);
+    try std.testing.expect(stmt.expression != null);
+    try expectBoolean(stmt.expression.?, true);
 }
 
 test "integer literal expr" {
