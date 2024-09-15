@@ -132,7 +132,7 @@ const Parser = struct {
 
         stmt.expression = exp;
 
-        while (!self.currTokenIs(.SEMICOLON)) {
+        while (!self.currTokenIs(.SEMICOLON) and !self.currTokenIs(.EOF)) {
             self.nextToken();
         }
 
@@ -322,6 +322,51 @@ fn printError(err: Error) void {
         });
     } else if (err.got != null) {
         std.debug.print(" - got {s}\n", .{@tagName(err.got.?)});
+    }
+}
+
+test "operator precedence parsing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const tests = [_]struct {
+        input: []const u8,
+        expected: []const u8,
+    }{
+        .{ .input = "-a * b", .expected = "((-a) * b)" },
+        .{ .input = "!-a", .expected = "(!(-a))" },
+        .{ .input = "a + b + c", .expected = "((a + b) + c)" },
+        .{ .input = "a + b - c", .expected = "((a + b) - c)" },
+        .{ .input = "a * b * c", .expected = "((a * b) * c)" },
+        .{ .input = "a * b / c", .expected = "((a * b) / c)" },
+        .{ .input = "a + b / c", .expected = "(a + (b / c))" },
+        .{ .input = "a + b * c + d / e - f", .expected = "(((a + (b * c)) + (d / e)) - f)" },
+        .{ .input = "3 + 4; -5 * 5", .expected = "(3 + 4)((-5) * 5)" },
+        .{ .input = "5 > 4 == 3 < 4", .expected = "((5 > 4) == (3 < 4))" },
+        .{ .input = "5 < 4 != 3 > 4", .expected = "((5 < 4) != (3 > 4))" },
+        .{ .input = "3 + 4 * 5 == 3 * 1 + 4 * 5", .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))" },
+        .{ .input = "3 + 4 * 5 == 3 * 1 + 4 * 5", .expected = "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))" },
+    };
+
+    for (tests) |tt| {
+        var l = lexer.Lexer.init(tt.input);
+        var p = try Parser.init(allocator, &l);
+        defer p.deinit();
+
+        var program = try p.parseProgram();
+        defer program.node.deinit(allocator);
+
+        const errs = p.getErrors();
+        for (errs) |err| {
+            printError(err);
+        }
+
+        try std.testing.expectEqual(0, p.getErrors().len);
+        const actual = try program.node.string(allocator);
+        defer allocator.free(actual);
+
+        try std.testing.expectEqualStrings(tt.expected, actual);
     }
 }
 
