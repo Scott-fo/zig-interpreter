@@ -16,7 +16,7 @@ fn evalStatements(stmts: std.ArrayList(*ast.Statement), allocator: std.mem.Alloc
     return result;
 }
 
-fn eval(node: *const ast.Node, allocator: std.mem.Allocator) !?*object.Object {
+pub fn eval(node: *const ast.Node, allocator: std.mem.Allocator) !?*object.Object {
     return switch (node.getType()) {
         .Program => {
             const p: *const ast.Program = @fieldParentPtr("node", node);
@@ -47,7 +47,7 @@ fn eval(node: *const ast.Node, allocator: std.mem.Allocator) !?*object.Object {
     };
 }
 
-fn testEval(allocator: std.mem.Allocator, input: []const u8) !*object.Object {
+fn testEval(allocator: std.mem.Allocator, input: []const u8) !?*object.Object {
     var l = lexer.Lexer.init(input);
     var p = try parser.Parser.init(allocator, &l);
     errdefer p.deinit();
@@ -57,7 +57,7 @@ fn testEval(allocator: std.mem.Allocator, input: []const u8) !*object.Object {
 
     const r = try eval(&program.node, allocator);
     if (r == null) {
-        @panic("got null from eval");
+        return null;
     }
     errdefer r.?.deinit(allocator);
 
@@ -82,8 +82,9 @@ test "eval integer expression" {
 
     for (tests) |tt| {
         const ev = try testEval(allocator, tt.input);
-        defer ev.deinit(allocator);
+        try std.testing.expect(ev != null);
+        defer ev.?.deinit(allocator);
 
-        try testIntegerObject(ev, tt.expected);
+        try testIntegerObject(ev.?, tt.expected);
     }
 }

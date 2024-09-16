@@ -22,7 +22,7 @@ pub const Object = struct {
     }
 
     pub fn inspect(self: *const Self, allocator: std.mem.Allocator) ![]const u8 {
-        return self.vtable.inspect(self, allocator);
+        return self.vtable.inspectFn(self, allocator);
     }
 
     pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
