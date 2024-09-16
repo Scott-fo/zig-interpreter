@@ -9,11 +9,12 @@ pub const NodeType = enum {
     BlockStatement,
     PrefixExpression,
     InfixExpression,
+    IfExpression,
+    CallExpression,
     IntegerLiteral,
     FunctionLiteral,
     Identifier,
     Boolean,
-    IfExpression,
 };
 
 pub const Node = struct {
@@ -466,12 +467,14 @@ pub const FunctionLiteral = struct {
         try buffer.appendSlice(self.expression.node.tokenLiteral());
         try buffer.append('(');
 
-        for (self.parameters.items) |param| {
+        for (self.parameters.items, 0..) |param, i| {
             const param_str = try param.expression.node.string(allocator);
             defer allocator.free(param_str);
 
+            if (i != 0) {
+                try buffer.append(',');
+            }
             try buffer.appendSlice(param_str);
-            try buffer.append(',');
         }
 
         try buffer.append(')');
@@ -481,6 +484,88 @@ pub const FunctionLiteral = struct {
 
         try buffer.appendSlice(body_str);
 
+        return buffer.toOwnedSlice();
+    }
+};
+
+pub const CallExpression = struct {
+    const Self = @This();
+
+    expression: Expression,
+    token: token.Token,
+    function: *Expression,
+    arguments: std.ArrayList(*Expression),
+
+    const vtable = Node.VTable{
+        .deinitFn = deinit,
+        .tokenLiteralFn = tokenLiteral,
+        .stringFn = string,
+        .getTypeFn = getType,
+    };
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        tok: token.Token,
+        function: *Expression,
+    ) !*Self {
+        const expr = try allocator.create(Self);
+        expr.* = .{
+            .expression = .{ .node = .{ .vtable = &vtable } },
+            .token = tok,
+            .function = function,
+            .arguments = std.ArrayList(*Expression).init(allocator),
+        };
+
+        return expr;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const expression: *Expression = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("expression", expression);
+
+        self.function.node.deinit(allocator);
+        for (self.arguments.items) |arg| {
+            arg.node.deinit(allocator);
+        }
+
+        allocator.destroy(self);
+    }
+
+    pub fn getType(_: *const Node) NodeType {
+        return .CallExpression;
+    }
+
+    pub fn tokenLiteral(node: *const Node) []const u8 {
+        const expression: *const Expression = @fieldParentPtr("node", node);
+        const self: *const Self = @fieldParentPtr("expression", expression);
+        return self.token.toLiteral();
+    }
+
+    pub fn string(node: *const Node, allocator: std.mem.Allocator) ![]const u8 {
+        const expression: *const Expression = @fieldParentPtr("node", node);
+        const self: *const Self = @fieldParentPtr("expression", expression);
+
+        var buffer = std.ArrayList(u8).init(allocator);
+        errdefer buffer.deinit();
+
+        const func_str = try self.function.node.string(allocator);
+        defer allocator.free(func_str);
+        try buffer.appendSlice(func_str);
+
+        try buffer.append('(');
+
+        for (self.arguments.items, 0..) |arg, i| {
+            const arg_str = try arg.node.string(allocator);
+            defer allocator.free(arg_str);
+
+            if (i != 0) {
+                try buffer.append(',');
+                try buffer.append(' ');
+            }
+            try buffer.appendSlice(arg_str);
+        }
+
+        try buffer.append(')');
         return buffer.toOwnedSlice();
     }
 };

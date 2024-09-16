@@ -45,8 +45,55 @@ fn getPrefixFn(t: std.meta.Tag(Token)) ?PrefixParseFn {
 fn getInfixFn(t: std.meta.Tag(Token)) ?InfixParseFn {
     return switch (t) {
         .PLUS, .MINUS, .SLASH, .ASTERISK, .EQ, .NOT_EQ, .LT, .GT => parseInfixExpression,
+        .LPAREN => parseCallExpression,
         else => null,
     };
+}
+
+fn parseCallArguments(p: *Parser) !?std.ArrayList(*ast.Expression) {
+    var es = std.ArrayList(*ast.Expression).init(p.allocator);
+    errdefer es.deinit();
+
+    if (p.peekTokenIs(.RPAREN)) {
+        p.nextToken();
+        return es;
+    }
+
+    p.nextToken();
+
+    var e: ?*ast.Expression = null;
+    e = try p.parseExpression(.LOWEST);
+
+    if (e != null) {
+        try es.append(e.?);
+    }
+
+    while (p.peekTokenIs(.COMMA)) {
+        p.nextToken();
+        p.nextToken();
+
+        e = try p.parseExpression(.LOWEST);
+        if (e != null) {
+            try es.append(e.?);
+        }
+    }
+
+    if (!try p.expectPeek(.RPAREN)) {
+        return null;
+    }
+
+    return es;
+}
+
+fn parseCallExpression(p: *Parser, func: *ast.Expression) !?*ast.Expression {
+    const exp = try ast.CallExpression.init(p.allocator, p.curr_token, func);
+    errdefer exp.expression.node.deinit(p.allocator);
+
+    const args = try parseCallArguments(p);
+    if (args != null) {
+        exp.arguments = args.?;
+    }
+    return &exp.expression;
 }
 
 fn parseInfixExpression(p: *Parser, left: *ast.Expression) !?*ast.Expression {
@@ -412,6 +459,7 @@ const Parser = struct {
             .MINUS => .SUM,
             .SLASH => .PRODUCT,
             .ASTERISK => .PRODUCT,
+            .LPAREN => .CALL,
             else => .LOWEST,
         };
     }
@@ -569,6 +617,80 @@ fn expectPrefixExpression(
     try expectLiteral(pe.right, right);
 }
 
+test "call expression parameter parsing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const tests = [_]struct {
+        input: []const u8,
+        expectedIdent: []const u8,
+        expectedParams: []const []const u8,
+    }{
+        .{
+            .input = "add();",
+            .expectedIdent = "add",
+            .expectedParams = &[_][]const u8{},
+        },
+        .{
+            .input = "add(1);",
+            .expectedIdent = "add",
+            .expectedParams = &[_][]const u8{"1"},
+        },
+        .{
+            .input = "add(1, 2 * 3, 4 + 5);",
+            .expectedIdent = "add",
+            .expectedParams = &[_][]const u8{ "1", "(2 * 3)", "(4 + 5)" },
+        },
+    };
+
+    for (tests) |tt| {
+        var program = try testParseProgram(allocator, tt.input);
+        defer program.node.deinit(allocator);
+
+        const stmt = try expectExpressionStatement(program.statements.items[0]);
+        try std.testing.expect(stmt.expression != null);
+
+        try std.testing.expectEqual(ast.NodeType.CallExpression, stmt.expression.?.node.getType());
+        const ce: *ast.CallExpression = @ptrCast(stmt.expression.?);
+
+        try expectIdentifier(ce.function, tt.expectedIdent);
+        try std.testing.expect(ce.arguments.items.len == tt.expectedParams.len);
+
+        for (tt.expectedParams, 0..) |param, i| {
+            const str = try ce.arguments.items[i].node.string(allocator);
+            defer allocator.free(str);
+
+            try std.testing.expectEqualStrings(param, str);
+        }
+    }
+}
+
+test "call expression parsing" {
+    const input = "add(1, 2 * 3, 4 + 5)";
+
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    var program = try testParseProgram(allocator, input);
+    defer program.node.deinit(allocator);
+
+    const stmt = try expectExpressionStatement(program.statements.items[0]);
+    try std.testing.expect(stmt.expression != null);
+
+    try std.testing.expectEqual(ast.NodeType.CallExpression, stmt.expression.?.node.getType());
+    const ce: *ast.CallExpression = @ptrCast(stmt.expression.?);
+
+    try expectIdentifier(ce.function, "add");
+    try std.testing.expect(ce.arguments.items.len == 3);
+
+    try expectLiteral(ce.arguments.items[0], .{ .int = 1 });
+    try expectInfixExpression(ce.arguments.items[1], .{ .int = 2 }, "*", .{ .int = 3 });
+    try expectInfixExpression(ce.arguments.items[2], .{ .int = 4 }, "+", .{ .int = 5 });
+}
+
 test "function parameter parsing" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -712,6 +834,9 @@ test "operator precedence parsing" {
         .{ .input = "2 / (5 + 5)", .expected = "(2 / (5 + 5))" },
         .{ .input = "-(5 + 5)", .expected = "(-(5 + 5))" },
         .{ .input = "!(true == true)", .expected = "(!(true == true))" },
+        .{ .input = "a + add(b * c) + d", .expected = "((a + add((b * c))) + d)" },
+        .{ .input = "add(a, b, 1, 2 * 3, 4 + 5, add(6, 7 * 8))", .expected = "add(a, b, 1, (2 * 3), (4 + 5), add(6, (7 * 8)))" },
+        .{ .input = "add(a + b + c * d / f + g)", .expected = "add((((a + b) + ((c * d) / f)) + g))" },
     };
 
     for (tests) |tt| {
