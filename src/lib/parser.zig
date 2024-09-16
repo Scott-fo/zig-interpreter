@@ -52,7 +52,12 @@ fn getInfixFn(t: std.meta.Tag(Token)) ?InfixParseFn {
 
 fn parseCallArguments(p: *Parser) !?std.ArrayList(*ast.Expression) {
     var es = std.ArrayList(*ast.Expression).init(p.allocator);
-    errdefer es.deinit();
+    errdefer {
+        for (es.items) |expr| {
+            expr.node.deinit(p.allocator);
+        }
+        es.deinit();
+    }
 
     if (p.peekTokenIs(.RPAREN)) {
         p.nextToken();
@@ -61,21 +66,24 @@ fn parseCallArguments(p: *Parser) !?std.ArrayList(*ast.Expression) {
 
     p.nextToken();
 
-    var e: ?*ast.Expression = null;
+    var e: ?*ast.Expression = undefined;
     e = try p.parseExpression(.LOWEST);
-
-    if (e != null) {
-        try es.append(e.?);
+    if (e == null) {
+        return null;
     }
+
+    try es.append(e.?);
 
     while (p.peekTokenIs(.COMMA)) {
         p.nextToken();
         p.nextToken();
 
         e = try p.parseExpression(.LOWEST);
-        if (e != null) {
-            try es.append(e.?);
+        if (e == null) {
+            return null;
         }
+
+        try es.append(e.?);
     }
 
     if (!try p.expectPeek(.RPAREN)) {
@@ -90,9 +98,10 @@ fn parseCallExpression(p: *Parser, func: *ast.Expression) !?*ast.Expression {
     errdefer exp.expression.node.deinit(p.allocator);
 
     const args = try parseCallArguments(p);
-    if (args != null) {
-        exp.arguments = args.?;
+    if (args == null) {
+        return null;
     }
+    exp.arguments = args.?;
     return &exp.expression;
 }
 
@@ -166,10 +175,11 @@ fn parseFunctionLiteral(p: *Parser) !?*ast.Expression {
     var lit = try ast.FunctionLiteral.init(p.allocator, curr, body);
     errdefer lit.expression.node.deinit(p.allocator);
 
-    if (params != null) {
-        lit.parameters = params.?;
+    if (params == null) {
+        return null;
     }
 
+    lit.parameters = params.?;
     return &lit.expression;
 }
 
@@ -620,9 +630,7 @@ fn expectPrefixExpression(
 }
 
 test "call expression parameter parsing" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = std.testing.allocator;
 
     const tests = [_]struct {
         input: []const u8,
@@ -670,11 +678,7 @@ test "call expression parameter parsing" {
 
 test "call expression parsing" {
     const input = "add(1, 2 * 3, 4 + 5)";
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-
-    const allocator = arena.allocator();
+    const allocator = std.testing.allocator;
 
     var program = try testParseProgram(allocator, input);
     defer program.node.deinit(allocator);
@@ -694,10 +698,7 @@ test "call expression parsing" {
 }
 
 test "function parameter parsing" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
+    const allocator = std.testing.allocator;
     const tests = [_]struct {
         input: []const u8,
         expectedParams: []const []const u8,
@@ -724,10 +725,7 @@ test "function parameter parsing" {
 
 test "function literal parsing" {
     const input = "fn (x, y) { x + y;}";
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = std.testing.allocator;
 
     var program = try testParseProgram(allocator, input);
     defer program.node.deinit(allocator);
@@ -750,10 +748,7 @@ test "function literal parsing" {
 
 test "if else expression" {
     const input = "if (a < b) { a } else { b }";
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = std.testing.allocator;
 
     var program = try testParseProgram(allocator, input);
     defer program.node.deinit(allocator);
@@ -781,10 +776,7 @@ test "if else expression" {
 
 test "if expression" {
     const input = "if (x < y) { x }";
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = std.testing.allocator;
 
     var program = try testParseProgram(allocator, input);
     defer program.node.deinit(allocator);
@@ -806,10 +798,7 @@ test "if expression" {
 }
 
 test "operator precedence parsing" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
+    const allocator = std.testing.allocator;
     const tests = [_]struct {
         input: []const u8,
         expected: []const u8,
@@ -853,10 +842,7 @@ test "operator precedence parsing" {
 }
 
 test "parsing infix expressions" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
+    const allocator = std.testing.allocator;
     const tests = [_]struct {
         input: []const u8,
         left_value: TestLiteral,
@@ -943,10 +929,7 @@ test "parsing infix expressions" {
 }
 
 test "parsing prefix expressions" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
+    const allocator = std.testing.allocator;
     const tests = [_]struct {
         input: []const u8,
         operator: []const u8,
@@ -971,10 +954,7 @@ test "parsing prefix expressions" {
 
 test "boolean literal expr" {
     const input = "true";
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = std.testing.allocator;
 
     var program = try testParseProgram(allocator, input);
     defer program.node.deinit(allocator);
@@ -988,10 +968,7 @@ test "boolean literal expr" {
 
 test "integer literal expr" {
     const input = "5;";
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = std.testing.allocator;
 
     var program = try testParseProgram(allocator, input);
     defer program.node.deinit(allocator);
@@ -1005,10 +982,7 @@ test "integer literal expr" {
 
 test "identifier" {
     const input = "foobar;";
-
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const allocator = std.testing.allocator;
 
     var program = try testParseProgram(allocator, input);
     defer program.node.deinit(allocator);
@@ -1021,10 +995,7 @@ test "identifier" {
 }
 
 test "return statement" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
+    const allocator = std.testing.allocator;
     const tests = [_]struct {
         input: []const u8,
         expectedValue: TestLiteral,
@@ -1048,10 +1019,7 @@ test "return statement" {
 }
 
 test "let statement" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
+    const allocator = std.testing.allocator;
     const tests = [_]struct {
         input: []const u8,
         expectedIdentifier: []const u8,

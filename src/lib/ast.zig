@@ -147,7 +147,6 @@ pub const BlockStatement = struct {
 
         for (self.statements.items) |stmt| {
             stmt.node.deinit(allocator);
-            allocator.destroy(stmt);
         }
 
         self.statements.deinit();
@@ -438,7 +437,6 @@ pub const FunctionLiteral = struct {
 
         for (self.parameters.items) |stmt| {
             stmt.expression.node.deinit(allocator);
-            allocator.destroy(stmt);
         }
 
         self.parameters.deinit();
@@ -526,6 +524,7 @@ pub const CallExpression = struct {
         for (self.arguments.items) |arg| {
             arg.node.deinit(allocator);
         }
+        self.arguments.deinit();
 
         allocator.destroy(self);
     }
