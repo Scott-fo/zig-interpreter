@@ -400,6 +400,8 @@ const Parser = struct {
 
         self.nextToken();
 
+        stmt.value = try self.parseExpression(.LOWEST);
+
         if (self.peekTokenIs(.SEMICOLON)) {
             self.nextToken();
         }
@@ -1019,53 +1021,57 @@ test "identifier" {
 }
 
 test "return statement" {
-    const input =
-        \\return 5;
-        \\return 10;
-        \\return 993322;
-    ;
-
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var program = try testParseProgram(allocator, input);
-    defer program.node.deinit(allocator);
+    const tests = [_]struct {
+        input: []const u8,
+        expectedValue: TestLiteral,
+    }{
+        .{ .input = "return 5;", .expectedValue = .{ .int = 5 } },
+        .{ .input = "return true;", .expectedValue = .{ .boolean = true } },
+        .{ .input = "return foobar;", .expectedValue = .{ .ident = "foobar" } },
+    };
 
-    try expectStatementLength(program, 3);
+    for (tests) |tt| {
+        var program = try testParseProgram(allocator, tt.input);
+        defer program.node.deinit(allocator);
+        try expectStatementLength(program, 1);
 
-    for (program.statements.items) |stmt| {
-        try std.testing.expectEqual(ast.NodeType.ReturnStatement, stmt.node.getType());
-        try std.testing.expectEqualStrings("return", stmt.node.tokenLiteral());
+        try std.testing.expectEqual(ast.NodeType.ReturnStatement, program.statements.items[0].node.getType());
+        const stmt_cast: *ast.ReturnStatement = @ptrCast(program.statements.items[0]);
+
+        try std.testing.expectEqualStrings("return", program.statements.items[0].node.tokenLiteral());
+        try expectLiteral(stmt_cast.value.?, tt.expectedValue);
     }
 }
 
 test "let statement" {
-    const input =
-        \\let x = 5;
-        \\let y = 10;
-        \\let foobar = 838383;
-    ;
-
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var program = try testParseProgram(allocator, input);
-    defer program.node.deinit(allocator);
-    try expectStatementLength(program, 3);
+    const tests = [_]struct {
+        input: []const u8,
+        expectedIdentifier: []const u8,
+        expectedValue: TestLiteral,
+    }{
+        .{ .input = "let x = 5;", .expectedIdentifier = "x", .expectedValue = .{ .int = 5 } },
+        .{ .input = "let y = true;", .expectedIdentifier = "y", .expectedValue = .{ .boolean = true } },
+        .{ .input = "let foobar = y;", .expectedIdentifier = "foobar", .expectedValue = .{ .ident = "y" } },
+    };
 
-    const expected_identifiers = [_][]const u8{ "x", "y", "foobar" };
+    for (tests) |tt| {
+        var program = try testParseProgram(allocator, tt.input);
+        defer program.node.deinit(allocator);
+        try expectStatementLength(program, 1);
 
-    for (program.statements.items, 0..) |stmt, i| {
-        try std.testing.expectEqual(ast.NodeType.LetStatement, stmt.node.getType());
-        const stmt_cast: *ast.LetStatement = @ptrCast(stmt);
+        try std.testing.expectEqual(ast.NodeType.LetStatement, program.statements.items[0].node.getType());
+        const stmt_cast: *ast.LetStatement = @ptrCast(program.statements.items[0]);
 
-        try std.testing.expectEqualStrings("let", stmt.node.tokenLiteral());
-        try std.testing.expectEqualStrings(expected_identifiers[i], stmt_cast.name.value);
-        try std.testing.expectEqualStrings(
-            expected_identifiers[i],
-            stmt_cast.name.expression.node.tokenLiteral(),
-        );
+        try std.testing.expectEqualStrings("let", program.statements.items[0].node.tokenLiteral());
+        try std.testing.expectEqualStrings(tt.expectedIdentifier, stmt_cast.name.value);
+        try expectLiteral(stmt_cast.value.?, tt.expectedValue);
     }
 }
