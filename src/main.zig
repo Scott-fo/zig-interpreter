@@ -6,6 +6,8 @@ test {
     _ = @import("lib/lexer.zig");
     _ = @import("lib/parser.zig");
     _ = @import("lib/ast.zig");
+    _ = @import("lib/evaluator.zig");
+    _ = @import("lib/object.zig");
 }
 
 pub fn main() !void {
