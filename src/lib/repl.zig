@@ -1,5 +1,6 @@
 const std = @import("std");
 const lexer = @import("lexer.zig");
+const parser = @import("parser.zig");
 const token = @import("token.zig");
 
 const PROMPT = ">>";
@@ -7,6 +8,14 @@ const PROMPT = ">>";
 pub fn start() !void {
     const stdin = std.io.getStdIn().reader();
     const stdout = std.io.getStdOut().writer();
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer {
+        const deinit_status = gpa.deinit();
+        if (deinit_status == .leak) @panic("memory leak");
+    }
+
+    const allocator = gpa.allocator();
 
     while (true) {
         try stdout.print("{s} ", .{PROMPT});
@@ -17,17 +26,24 @@ pub fn start() !void {
                 break;
             }
             var l = lexer.Lexer.init(user_input);
-            var tok = l.nextToken();
-            while (tok != .EOF) : (tok = l.nextToken()) {
-                try stdout.print("Type: {s}", .{@tagName(tok)});
+            var p = try parser.Parser.init(allocator, &l);
+            errdefer p.deinit();
 
-                switch (tok) {
-                    .IDENT, .INT => |literal| try stdout.print(", Literal: {s}", .{literal}),
-                    else => {},
+            var program = try p.parseProgram();
+            defer program.node.deinit(allocator);
+
+            const errs = p.getErrors();
+            if (errs.len > 0) {
+                for (errs) |err| {
+                    parser.printError(err);
                 }
-
-                try stdout.print("\n", .{});
+                continue;
             }
+
+            const prog_str = try program.node.string(allocator);
+            defer allocator.free(prog_str);
+            try stdout.print("{s}", .{prog_str});
+            try stdout.print("\n", .{});
         }
     }
 }

@@ -296,7 +296,7 @@ fn parseIntegerLiteral(p: *Parser) !?*ast.Expression {
     return &lit.expression;
 }
 
-const Parser = struct {
+pub const Parser = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
@@ -330,7 +330,7 @@ const Parser = struct {
         self.peek_token = self.l.nextToken();
     }
 
-    fn parseProgram(self: *Self) !*ast.Program {
+    pub fn parseProgram(self: *Self) !*ast.Program {
         var program = ast.Program.init(self.allocator);
         errdefer program.node.deinit(self.allocator);
 
@@ -508,12 +508,12 @@ const Parser = struct {
     }
 };
 
-fn printError(err: Error) void {
+pub fn printError(err: Error) void {
     std.debug.print("Parser error: {s}", .{@errorName(err.err)});
     if (err.msg != null) {
         std.debug.print("{s}", .{err.msg.?});
     } else if (err.expected != null and err.got != null) {
-        std.debug.print(" - expected next token to be {s}, got {s} instead", .{
+        std.debug.print(" - expected next token to be {s}, got {s} instead\n", .{
             @tagName(err.expected.?),
             @tagName(err.got.?),
         });

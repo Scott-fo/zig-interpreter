@@ -80,7 +80,6 @@ pub const Program = struct {
 
         for (self.statements.items) |stmt| {
             stmt.node.deinit(allocator);
-            allocator.destroy(stmt);
         }
 
         self.statements.deinit();
