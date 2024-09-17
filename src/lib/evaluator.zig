@@ -5,6 +5,30 @@ const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
 const ast = @import("ast.zig");
 
+fn isTruthy(obj: *object.Object) bool {
+    return switch (obj.objectType()) {
+        .NullObj => false,
+        .BooleanObj => std.meta.eql(&object.Boolean.get(true).object, obj),
+        else => true,
+    };
+}
+
+fn evalIfExpression(allocator: std.mem.Allocator, ie: *const ast.IfExpression) !?*object.Object {
+    const condition = try eval(&ie.condition.node, allocator);
+    if (condition == null) {
+        return &object.Null.get().object;
+    }
+    defer condition.?.deinit(allocator);
+
+    if (isTruthy(condition.?)) {
+        return eval(&ie.consequence.node, allocator);
+    } else if (ie.alternative != null) {
+        return eval(&ie.alternative.?.node, allocator);
+    } else {
+        return &object.Null.get().object;
+    }
+}
+
 fn evalIntegerInfixExpression(allocator: std.mem.Allocator, operator: []const u8, left: *object.Object, right: *object.Object) !*object.Object {
     const l: *object.Integer = @fieldParentPtr("object", left);
     const r: *object.Integer = @fieldParentPtr("object", right);
@@ -129,8 +153,6 @@ pub fn eval(node: *const ast.Node, allocator: std.mem.Allocator) !?*object.Objec
             }
 
             const i = try object.Integer.init(allocator, il.value.?);
-            errdefer i.object.deinit(allocator);
-
             return &i.object;
         },
         .Boolean => {
@@ -167,6 +189,15 @@ pub fn eval(node: *const ast.Node, allocator: std.mem.Allocator) !?*object.Objec
 
             return evalInfixExpression(allocator, ie.operator, left.?, right.?);
         },
+        .BlockStatement => {
+            const bs: *const ast.BlockStatement = @fieldParentPtr("node", node);
+            return evalStatements(bs.statements, allocator);
+        },
+        .IfExpression => {
+            const expression: *const ast.Expression = @fieldParentPtr("node", node);
+            const ie: *const ast.IfExpression = @fieldParentPtr("expression", expression);
+            return evalIfExpression(allocator, ie);
+        },
         else => null,
     };
 }
@@ -198,6 +229,37 @@ fn testBooleanObject(obj: *object.Object, expected: bool) !void {
     try std.testing.expectEqual(object.ObjectType.BooleanObj, obj.objectType());
     const b: *const object.Boolean = @ptrCast(obj);
     try std.testing.expectEqual(expected, b.value);
+}
+
+test "if else expressions" {
+    const allocator = std.testing.allocator;
+    const tests = [_]struct {
+        input: []const u8,
+        expected: parser.TestLiteral,
+        empty: bool,
+    }{
+        .{ .input = "if (true) { 10 }", .expected = .{ .int = 10 }, .empty = false },
+        .{ .input = "if (false) { 10 }", .expected = .{ .empty = {} }, .empty = true },
+        .{ .input = "if (1) { 10 }", .expected = .{ .int = 10 }, .empty = false },
+        .{ .input = "if (1 < 2) { 10 }", .expected = .{ .int = 10 }, .empty = false },
+        .{ .input = "if (1 > 2) { 10 }", .expected = .{ .empty = {} }, .empty = true },
+        .{ .input = "if (1 > 2) { 10 } else { 20 }", .expected = .{ .int = 20 }, .empty = false },
+        .{ .input = "if (1 < 2) { 10 } else { 20 }", .expected = .{ .int = 10 }, .empty = false },
+    };
+
+    for (tests) |tt| {
+        const ev = try testEval(allocator, tt.input);
+        try std.testing.expect(ev != null);
+        defer ev.?.deinit(allocator);
+
+        if (tt.empty) {
+            try std.testing.expectEqual(object.ObjectType.NullObj, ev.?.objectType());
+            const n: *object.Null = @ptrCast(ev.?);
+            try std.testing.expect(std.meta.eql(&object.Null.get().object, &n.object));
+        } else {
+            try testIntegerObject(ev.?, tt.expected.int);
+        }
+    }
 }
 
 test "bang operator" {

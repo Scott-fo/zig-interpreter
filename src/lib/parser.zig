@@ -532,10 +532,11 @@ pub fn printError(err: Error) void {
     }
 }
 
-const TestLiteral = union(enum) {
+pub const TestLiteral = union(enum) {
     int: i64,
     boolean: bool,
     ident: []const u8,
+    empty: void,
 };
 
 fn testParseProgram(allocator: std.mem.Allocator, input: []const u8) !*ast.Program {
@@ -582,6 +583,7 @@ fn expectLiteral(expr: *ast.Expression, expected: TestLiteral) !void {
         .int => |v| try expectIntegerLiteral(expr, v),
         .boolean => |v| try expectBoolean(expr, v),
         .ident => |v| try expectIdentifier(expr, v),
+        else => unreachable,
     }
 }
 
