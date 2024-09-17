@@ -43,6 +43,15 @@ pub fn eval(node: *const ast.Node, allocator: std.mem.Allocator) !?*object.Objec
 
             return &i.object;
         },
+        .Boolean => {
+            const expression: *const ast.Expression = @fieldParentPtr("node", node);
+            const be: *const ast.Boolean = @fieldParentPtr("expression", expression);
+
+            const b = try object.Boolean.init(allocator, be.value);
+            errdefer b.object.deinit(allocator);
+
+            return &b.object;
+        },
         else => null,
     };
 }
@@ -70,6 +79,12 @@ fn testIntegerObject(obj: *object.Object, expected: i64) !void {
     try std.testing.expectEqual(expected, i.value);
 }
 
+fn testBooleanObject(obj: *object.Object, expected: bool) !void {
+    try std.testing.expectEqual(object.ObjectType.BooleanObj, obj.objectType());
+    const b: *const object.Boolean = @ptrCast(obj);
+    try std.testing.expectEqual(expected, b.value);
+}
+
 test "eval integer expression" {
     const allocator = std.testing.allocator;
     const tests = [_]struct {
@@ -86,5 +101,24 @@ test "eval integer expression" {
         defer ev.?.deinit(allocator);
 
         try testIntegerObject(ev.?, tt.expected);
+    }
+}
+
+test "eval boolean expression" {
+    const allocator = std.testing.allocator;
+    const tests = [_]struct {
+        input: []const u8,
+        expected: bool,
+    }{
+        .{ .input = "true", .expected = true },
+        .{ .input = "false", .expected = false },
+    };
+
+    for (tests) |tt| {
+        const ev = try testEval(allocator, tt.input);
+        try std.testing.expect(ev != null);
+        defer ev.?.deinit(allocator);
+
+        try testBooleanObject(ev.?, tt.expected);
     }
 }
