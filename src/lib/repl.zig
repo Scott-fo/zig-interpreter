@@ -3,6 +3,7 @@ const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
 const token = @import("token.zig");
 const evaluator = @import("evaluator.zig");
+const object = @import("object.zig");
 
 const PROMPT = ">>";
 

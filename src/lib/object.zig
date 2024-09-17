@@ -79,20 +79,24 @@ pub const Boolean = struct {
         .deinitFn = deinit,
     };
 
-    pub fn init(allocator: std.mem.Allocator, value: bool) !*Self {
-        const boo = try allocator.create(Self);
-        boo.* = .{
-            .object = .{ .vtable = &vtable },
-            .value = value,
+    pub var TRUE: Self = .{
+        .object = .{ .vtable = &vtable },
+        .value = true,
+    };
+
+    pub var FALSE: Self = .{
+        .object = .{ .vtable = &vtable },
+        .value = false,
+    };
+
+    pub fn get(v: bool) *Self {
+        return switch (v) {
+            true => &TRUE,
+            false => &FALSE,
         };
-
-        return boo;
     }
 
-    pub fn deinit(object: *Object, allocator: std.mem.Allocator) void {
-        const self: *Self = @fieldParentPtr("object", object);
-        allocator.destroy(self);
-    }
+    pub fn deinit(_: *Object, _: std.mem.Allocator) void {}
 
     pub fn objectType(_: *const Object) ObjectType {
         return .BooleanObj;
@@ -115,25 +119,22 @@ pub const Null = struct {
         .deinitFn = deinit,
     };
 
-    pub fn init(allocator: std.mem.Allocator) !*Self {
-        const nu = try allocator.create(Self);
-        nu.* = .{
-            .object = .{ .vtable = &vtable },
-        };
+    pub var NULL: Self = .{
+        .object = .{ .vtable = &vtable },
+    };
 
-        return nu;
+    pub fn get() *Self {
+        return &NULL;
     }
 
-    pub fn deinit(object: *Object, allocator: std.mem.Allocator) void {
-        const self: *Self = @fieldParentPtr("object", object);
-        allocator.destroy(self);
-    }
+    pub fn deinit(_: *Object, _: std.mem.Allocator) void {}
 
     pub fn objectType(_: *const Object) ObjectType {
         return .NullObj;
     }
 
-    pub fn inspect(_: *const Object, _: std.mem.Allocator) ![]const u8 {
-        return "null";
+    pub fn inspect(_: *const Object, allocator: std.mem.Allocator) ![]const u8 {
+        // Annoying, but means that I can use a consistent allocator.free
+        return allocator.dupe(u8, "null");
     }
 };
