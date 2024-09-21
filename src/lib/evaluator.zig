@@ -8,7 +8,7 @@ const ast = @import("ast.zig");
 fn isTruthy(obj: *object.Object) bool {
     return switch (obj.objectType()) {
         .NullObj => false,
-        .BooleanObj => std.meta.eql(&object.Boolean.get(true).object, obj),
+        .BooleanObj => std.meta.eql(object.Boolean.get(true), obj),
         else => true,
     };
 }
@@ -16,7 +16,7 @@ fn isTruthy(obj: *object.Object) bool {
 fn evalIfExpression(allocator: std.mem.Allocator, ie: *const ast.IfExpression) !?*object.Object {
     const condition = try eval(&ie.condition.node, allocator);
     if (condition == null) {
-        return &object.Null.get().object;
+        return object.Null.get();
     }
     defer condition.?.deinit(allocator);
 
@@ -25,7 +25,7 @@ fn evalIfExpression(allocator: std.mem.Allocator, ie: *const ast.IfExpression) !
     } else if (ie.alternative != null) {
         return eval(&ie.alternative.?.node, allocator);
     } else {
-        return &object.Null.get().object;
+        return object.Null.get();
     }
 }
 
@@ -54,21 +54,21 @@ fn evalIntegerInfixExpression(allocator: std.mem.Allocator, operator: []const u8
                 const new = try object.Integer.init(allocator, @divFloor(lv, rv));
                 return &new.object;
             },
-            '<' => &object.Boolean.get(lv < rv).object,
-            '>' => &object.Boolean.get(lv > rv).object,
-            else => &object.Null.get().object,
+            '<' => object.Boolean.get(lv < rv),
+            '>' => object.Boolean.get(lv > rv),
+            else => object.Null.get(),
         };
     }
 
     if (std.mem.eql(u8, operator, "==")) {
-        return &object.Boolean.get(lv == rv).object;
+        return object.Boolean.get(lv == rv);
     }
 
     if (std.mem.eql(u8, operator, "!=")) {
-        return &object.Boolean.get(lv != rv).object;
+        return object.Boolean.get(lv != rv);
     }
 
-    return &object.Null.get().object;
+    return object.Null.get();
 }
 
 fn evalInfixExpression(allocator: std.mem.Allocator, operator: []const u8, left: *object.Object, right: *object.Object) !*object.Object {
@@ -77,19 +77,19 @@ fn evalInfixExpression(allocator: std.mem.Allocator, operator: []const u8, left:
     }
 
     if (std.mem.eql(u8, operator, "==")) {
-        return &object.Boolean.get(std.meta.eql(left, right)).object;
+        return object.Boolean.get(std.meta.eql(left, right));
     }
 
     if (std.mem.eql(u8, operator, "!=")) {
-        return &object.Boolean.get(!std.meta.eql(left, right)).object;
+        return object.Boolean.get(!std.meta.eql(left, right));
     }
 
-    return &object.Null.get().object;
+    return object.Null.get();
 }
 
 fn evalMinusPrefixOperatorExpression(allocator: std.mem.Allocator, right: *object.Object) !*object.Object {
     if (right.objectType() != object.ObjectType.IntegerObj) {
-        return &object.Null.get().object; // Update these gets to return a reference to the object
+        return object.Null.get();
     }
 
     const i: *object.Integer = @fieldParentPtr("object", right);
@@ -102,12 +102,12 @@ fn evalBangOperatorExpression(right: *object.Object) *object.Object {
         .BooleanObj => {
             const boo: *object.Boolean = @fieldParentPtr("object", right);
             return switch (boo.value) {
-                true => &object.Boolean.get(false).object,
-                false => &object.Boolean.get(true).object,
+                true => object.Boolean.get(false),
+                false => object.Boolean.get(true),
             };
         },
-        .NullObj => &object.Boolean.get(true).object,
-        else => &object.Boolean.get(false).object,
+        .NullObj => object.Boolean.get(true),
+        else => object.Boolean.get(false),
     };
 }
 
@@ -115,7 +115,7 @@ fn evalPrefixExpression(allocator: std.mem.Allocator, operator: u8, right: *obje
     return switch (operator) {
         '!' => evalBangOperatorExpression(right),
         '-' => evalMinusPrefixOperatorExpression(allocator, right),
-        else => &object.Null.get().object,
+        else => object.Null.get(),
     };
 }
 
@@ -185,7 +185,7 @@ pub fn eval(node: *const ast.Node, allocator: std.mem.Allocator) !?*object.Objec
         .Boolean => {
             const expression: *const ast.Expression = @fieldParentPtr("node", node);
             const be: *const ast.Boolean = @fieldParentPtr("expression", expression);
-            return &object.Boolean.get(be.value).object;
+            return object.Boolean.get(be.value);
         },
         .PrefixExpression => {
             const expression: *const ast.Expression = @fieldParentPtr("node", node);
@@ -318,7 +318,7 @@ test "if else expressions" {
         if (tt.empty) {
             try std.testing.expectEqual(object.ObjectType.NullObj, ev.?.objectType());
             const n: *object.Null = @ptrCast(ev.?);
-            try std.testing.expect(std.meta.eql(&object.Null.get().object, &n.object));
+            try std.testing.expect(std.meta.eql(object.Null.get(), &n.object));
         } else {
             try testIntegerObject(ev.?, tt.expected.int);
         }

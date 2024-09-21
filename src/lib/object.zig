@@ -140,10 +140,10 @@ pub const Boolean = struct {
         .value = false,
     };
 
-    pub fn get(v: bool) *Self {
+    pub fn get(v: bool) *Object {
         return switch (v) {
-            true => &TRUE,
-            false => &FALSE,
+            true => &TRUE.object,
+            false => &FALSE.object,
         };
     }
 
@@ -174,8 +174,8 @@ pub const Null = struct {
         .object = .{ .vtable = &vtable },
     };
 
-    pub fn get() *Self {
-        return &NULL;
+    pub fn get() *Object {
+        return &NULL.object;
     }
 
     pub fn deinit(_: *Object, _: std.mem.Allocator) void {}
