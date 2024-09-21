@@ -4,6 +4,7 @@ pub const ObjectType = enum {
     IntegerObj,
     BooleanObj,
     NullObj,
+    ReturnValueObj,
 };
 
 pub const Object = struct {
@@ -27,6 +28,56 @@ pub const Object = struct {
 
     pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
         return self.vtable.deinitFn(self, allocator);
+    }
+};
+
+pub const ReturnValue = struct {
+    const Self = @This();
+
+    object: Object,
+    value: ?*Object,
+
+    const vtable = Object.VTable{
+        .objectTypeFn = objectType,
+        .inspectFn = inspect,
+        .deinitFn = deinit,
+    };
+
+    pub fn init(allocator: std.mem.Allocator, value: *Object) !*Self {
+        const rv = try allocator.create(Self);
+        rv.* = .{
+            .object = .{ .vtable = &vtable },
+            .value = value,
+        };
+
+        return rv;
+    }
+
+    pub fn deinit(object: *Object, allocator: std.mem.Allocator) void {
+        const self: *Self = @fieldParentPtr("object", object);
+        if (self.value) |v| {
+            v.deinit(allocator);
+        }
+        allocator.destroy(self);
+    }
+
+    pub fn objectType(_: *const Object) ObjectType {
+        return .ReturnValueObj;
+    }
+
+    pub fn inspect(object: *const Object, allocator: std.mem.Allocator) ![]const u8 {
+        const self: *const Self = @fieldParentPtr("object", object);
+        if (self.value == null) {
+            return "";
+        }
+
+        return self.value.?.inspect(allocator);
+    }
+
+    pub fn moveValue(self: *Self) ?*Object {
+        const value = self.value;
+        self.value = null;
+        return value;
     }
 };
 

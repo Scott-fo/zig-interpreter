@@ -119,14 +119,41 @@ fn evalPrefixExpression(allocator: std.mem.Allocator, operator: u8, right: *obje
     };
 }
 
-fn evalStatements(stmts: std.ArrayList(*ast.Statement), allocator: std.mem.Allocator) anyerror!?*object.Object {
+fn evalProgram(stmts: std.ArrayList(*ast.Statement), allocator: std.mem.Allocator) anyerror!?*object.Object {
     var result: ?*object.Object = null;
+
     for (stmts.items) |stmt| {
+        if (result) |r| {
+            r.deinit(allocator);
+        }
+
         result = try eval(&stmt.node, allocator);
         if (result == null) {
             return null;
         }
+
+        if (result.?.objectType() == object.ObjectType.ReturnValueObj) {
+            const rv: *object.ReturnValue = @fieldParentPtr("object", result.?);
+            defer rv.object.deinit(allocator);
+
+            return rv.moveValue();
+        }
     }
+
+    return result;
+}
+
+fn evalBlockStatement(stmts: std.ArrayList(*ast.Statement), allocator: std.mem.Allocator) !?*object.Object {
+    var result: ?*object.Object = null;
+
+    for (stmts.items) |stmt| {
+        result = try eval(&stmt.node, allocator);
+        if (result != null and result.?.objectType() == object.ObjectType.ReturnValueObj) {
+            const rv: *object.ReturnValue = @fieldParentPtr("object", result.?);
+            return &rv.object;
+        }
+    }
+
     return result;
 }
 
@@ -134,7 +161,7 @@ pub fn eval(node: *const ast.Node, allocator: std.mem.Allocator) !?*object.Objec
     return switch (node.getType()) {
         .Program => {
             const p: *const ast.Program = @fieldParentPtr("node", node);
-            return evalStatements(p.statements, allocator);
+            return evalProgram(p.statements, allocator);
         },
         .ExpressionStatement => {
             const statement: *const ast.Statement = @fieldParentPtr("node", node);
@@ -191,12 +218,27 @@ pub fn eval(node: *const ast.Node, allocator: std.mem.Allocator) !?*object.Objec
         },
         .BlockStatement => {
             const bs: *const ast.BlockStatement = @fieldParentPtr("node", node);
-            return evalStatements(bs.statements, allocator);
+            return evalBlockStatement(bs.statements, allocator);
         },
         .IfExpression => {
             const expression: *const ast.Expression = @fieldParentPtr("node", node);
             const ie: *const ast.IfExpression = @fieldParentPtr("expression", expression);
             return evalIfExpression(allocator, ie);
+        },
+        .ReturnStatement => {
+            const statement: *const ast.Statement = @fieldParentPtr("node", node);
+            const rs: *const ast.ReturnStatement = @fieldParentPtr("statement", statement);
+            if (rs.value == null) {
+                return null;
+            }
+
+            const val = try eval(&rs.value.?.node, allocator);
+            if (val == null) {
+                return null;
+            }
+
+            const rv = try object.ReturnValue.init(allocator, val.?);
+            return &rv.object;
         },
         else => null,
     };
@@ -229,6 +271,27 @@ fn testBooleanObject(obj: *object.Object, expected: bool) !void {
     try std.testing.expectEqual(object.ObjectType.BooleanObj, obj.objectType());
     const b: *const object.Boolean = @ptrCast(obj);
     try std.testing.expectEqual(expected, b.value);
+}
+
+test "return statements" {
+    const allocator = std.testing.allocator;
+    const tests = [_]struct {
+        input: []const u8,
+        expected: i64,
+    }{
+        .{ .input = "return 10;", .expected = 10 },
+        .{ .input = "return 10;9;", .expected = 10 },
+        .{ .input = "return 2 * 5;9;", .expected = 10 },
+        .{ .input = "9;return 2 * 5;9;", .expected = 10 },
+    };
+
+    for (tests) |tt| {
+        const ev = try testEval(allocator, tt.input);
+        try std.testing.expect(ev != null);
+        defer ev.?.deinit(allocator);
+
+        try testIntegerObject(ev.?, tt.expected);
+    }
 }
 
 test "if else expressions" {
