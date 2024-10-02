@@ -51,13 +51,7 @@ fn getInfixFn(t: std.meta.Tag(Token)) ?InfixParseFn {
 }
 
 fn parseCallArguments(p: *Parser) !?std.ArrayList(*ast.Expression) {
-    var es = std.ArrayList(*ast.Expression).init(p.allocator);
-    errdefer {
-        for (es.items) |expr| {
-            expr.node.deinit(p.allocator);
-        }
-        es.deinit();
-    }
+    var es = std.ArrayList(*ast.Expression).init(p.arena);
 
     if (p.peekTokenIs(.RPAREN)) {
         p.nextToken();
@@ -94,9 +88,7 @@ fn parseCallArguments(p: *Parser) !?std.ArrayList(*ast.Expression) {
 }
 
 fn parseCallExpression(p: *Parser, func: *ast.Expression) !?*ast.Expression {
-    const exp = try ast.CallExpression.init(p.allocator, p.curr_token, func);
-    errdefer exp.expression.node.deinit(p.allocator);
-
+    const exp = try ast.CallExpression.init(p.arena, p.curr_token, func);
     const args = try parseCallArguments(p);
     if (args == null) {
         return null;
@@ -117,16 +109,12 @@ fn parseInfixExpression(p: *Parser, left: *ast.Expression) !?*ast.Expression {
         return null;
     }
 
-    const ie = try ast.InfixExpression.init(p.allocator, curr, operator, left, right.?);
-    errdefer ie.expression.node.deinit(p.allocator);
-
+    const ie = try ast.InfixExpression.init(p.arena, curr, operator, left, right.?);
     return &ie.expression;
 }
 
 fn parseFunctionParams(p: *Parser) !?std.ArrayList(*ast.Identifier) {
-    var idents = std.ArrayList(*ast.Identifier).init(p.allocator);
-    errdefer idents.deinit();
-
+    var idents = std.ArrayList(*ast.Identifier).init(p.arena);
     if (p.peekTokenIs(.RPAREN)) {
         p.nextToken();
         return idents;
@@ -135,18 +123,14 @@ fn parseFunctionParams(p: *Parser) !?std.ArrayList(*ast.Identifier) {
     p.nextToken();
 
     var ident: *ast.Identifier = undefined;
-    ident = try ast.Identifier.init(p.allocator, p.curr_token, p.curr_token.toLiteral());
-    errdefer ident.expression.node.deinit(p.allocator);
-
+    ident = try ast.Identifier.init(p.arena, p.curr_token, p.curr_token.toLiteral());
     try idents.append(ident);
 
     while (p.peekTokenIs(.COMMA)) {
         p.nextToken();
         p.nextToken();
 
-        ident = try ast.Identifier.init(p.allocator, p.curr_token, p.curr_token.toLiteral());
-        errdefer ident.expression.node.deinit(p.allocator);
-
+        ident = try ast.Identifier.init(p.arena, p.curr_token, p.curr_token.toLiteral());
         try idents.append(ident);
     }
 
@@ -171,9 +155,7 @@ fn parseFunctionLiteral(p: *Parser) !?*ast.Expression {
     }
 
     const body = try parseBlockStatement(p);
-
-    var lit = try ast.FunctionLiteral.init(p.allocator, curr, body);
-    errdefer lit.expression.node.deinit(p.allocator);
+    var lit = try ast.FunctionLiteral.init(p.arena, curr, body);
 
     if (params == null) {
         return null;
@@ -184,8 +166,7 @@ fn parseFunctionLiteral(p: *Parser) !?*ast.Expression {
 }
 
 fn parseBlockStatement(p: *Parser) !*ast.BlockStatement {
-    var block = try ast.BlockStatement.init(p.allocator, p.curr_token);
-    errdefer block.node.deinit(p.allocator);
+    var block = try ast.BlockStatement.init(p.arena, p.curr_token);
 
     p.nextToken();
 
@@ -235,9 +216,7 @@ fn parseIfExpression(p: *Parser) !?*ast.Expression {
         alternative = try parseBlockStatement(p);
     }
 
-    const ie = try ast.IfExpression.init(p.allocator, curr, condition.?, consequence, alternative);
-    errdefer ie.expression.node.deinit(p.allocator);
-
+    const ie = try ast.IfExpression.init(p.arena, curr, condition.?, consequence, alternative);
     return &ie.expression;
 }
 
@@ -265,28 +244,22 @@ fn parsePrefixExpression(p: *Parser) !?*ast.Expression {
         return null;
     }
 
-    const pe = try ast.PrefixExpression.init(p.allocator, curr, operator, right.?);
-    errdefer pe.expression.node.deinit(p.allocator);
-
+    const pe = try ast.PrefixExpression.init(p.arena, curr, operator, right.?);
     return &pe.expression;
 }
 
 fn parseIdentifier(p: *Parser) !?*ast.Expression {
-    const i = try ast.Identifier.init(p.allocator, p.curr_token, p.curr_token.toLiteral());
-    errdefer i.expression.node.deinit(p.allocator);
+    const i = try ast.Identifier.init(p.arena, p.curr_token, p.curr_token.toLiteral());
     return &i.expression;
 }
 
 fn parseBoolean(p: *Parser) !?*ast.Expression {
-    const b = try ast.Boolean.init(p.allocator, p.curr_token, p.currTokenIs(.TRUE));
-    errdefer b.expression.node.deinit(p.allocator);
-
+    const b = try ast.Boolean.init(p.arena, p.curr_token, p.currTokenIs(.TRUE));
     return &b.expression;
 }
 
 fn parseIntegerLiteral(p: *Parser) !?*ast.Expression {
-    var lit = try ast.IntegerLiteral.init(p.allocator, p.curr_token, null);
-    errdefer lit.expression.node.deinit(p.allocator);
+    var lit = try ast.IntegerLiteral.init(p.arena, p.curr_token, null);
 
     const int = std.fmt.parseInt(i64, p.curr_token.toLiteral(), 10) catch |err| {
         const error_msg = switch (err) {
@@ -309,20 +282,20 @@ fn parseIntegerLiteral(p: *Parser) !?*ast.Expression {
 pub const Parser = struct {
     const Self = @This();
 
-    allocator: std.mem.Allocator,
+    arena: std.mem.Allocator,
     l: *lexer.Lexer,
     errors: std.ArrayList(Error),
     curr_token: Token,
     peek_token: Token,
 
-    pub fn init(allocator: std.mem.Allocator, l: *lexer.Lexer) !Self {
-        const e = std.ArrayList(Error).init(allocator);
+    pub fn init(arena: std.mem.Allocator, l: *lexer.Lexer) !Self {
+        const e = std.ArrayList(Error).init(arena);
         var p = Parser{
             .l = l,
             .curr_token = undefined,
             .peek_token = undefined,
             .errors = e,
-            .allocator = allocator,
+            .arena = arena,
         };
 
         p.nextToken();
@@ -331,18 +304,13 @@ pub const Parser = struct {
         return p;
     }
 
-    pub fn deinit(self: *Self) void {
-        self.errors.deinit();
-    }
-
     fn nextToken(self: *Self) void {
         self.curr_token = self.peek_token;
         self.peek_token = self.l.nextToken();
     }
 
     pub fn parseProgram(self: *Self) !*ast.Program {
-        var program = ast.Program.init(self.allocator);
-        errdefer program.node.deinit(self.allocator);
+        var program = ast.Program.init(self.arena);
 
         while (self.curr_token != .EOF) {
             const stmt = try self.parseStatement();
@@ -392,9 +360,7 @@ pub const Parser = struct {
     }
 
     fn parseExpressionStatement(self: *Self) !?*ast.Statement {
-        var stmt = try ast.ExpressionStatement.init(self.allocator, self.curr_token, null);
-        errdefer stmt.statement.node.deinit(self.allocator);
-
+        var stmt = try ast.ExpressionStatement.init(self.arena, self.curr_token, null);
         stmt.expression = try self.parseExpression(.LOWEST);
 
         if (self.peekTokenIs(.SEMICOLON)) {
@@ -405,9 +371,7 @@ pub const Parser = struct {
     }
 
     fn parseReturnStatement(self: *Self) !?*ast.Statement {
-        const stmt = try ast.ReturnStatement.init(self.allocator, self.curr_token, null);
-        errdefer stmt.statement.node.deinit(self.allocator);
-
+        const stmt = try ast.ReturnStatement.init(self.arena, self.curr_token, null);
         self.nextToken();
 
         stmt.value = try self.parseExpression(.LOWEST);
@@ -427,14 +391,13 @@ pub const Parser = struct {
         }
 
         const name = try ast.Identifier.init(
-            self.allocator,
+            self.arena,
             self.curr_token,
             switch (self.curr_token) {
                 .IDENT => |ident| ident,
                 else => unreachable,
             },
         );
-        errdefer name.expression.node.deinit(self.allocator);
 
         if (!try self.expectPeek(.ASSIGN)) {
             return null;
@@ -449,7 +412,7 @@ pub const Parser = struct {
         }
 
         const let_stmt = try ast.LetStatement.init(
-            self.allocator,
+            self.arena,
             let_token,
             name,
             value,
@@ -539,13 +502,11 @@ pub const TestLiteral = union(enum) {
     empty: void,
 };
 
-fn testParseProgram(allocator: std.mem.Allocator, input: []const u8) !*ast.Program {
+fn testParseProgram(arena: std.mem.Allocator, input: []const u8) !*ast.Program {
     var l = lexer.Lexer.init(input);
-    var p = try Parser.init(allocator, &l);
-    errdefer p.deinit();
+    var p = try Parser.init(arena, &l);
 
-    var program = try p.parseProgram();
-    errdefer program.node.deinit(allocator);
+    const program = try p.parseProgram();
 
     const errs = p.getErrors();
     for (errs) |err| {
@@ -632,7 +593,9 @@ fn expectPrefixExpression(
 }
 
 test "call expression parameter parsing" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     const tests = [_]struct {
         input: []const u8,
@@ -657,9 +620,7 @@ test "call expression parameter parsing" {
     };
 
     for (tests) |tt| {
-        var program = try testParseProgram(allocator, tt.input);
-        defer program.node.deinit(allocator);
-
+        const program = try testParseProgram(allocator, tt.input);
         const stmt = try expectExpressionStatement(program.statements.items[0]);
         try std.testing.expect(stmt.expression != null);
 
@@ -671,20 +632,19 @@ test "call expression parameter parsing" {
 
         for (tt.expectedParams, 0..) |param, i| {
             const str = try ce.arguments.items[i].node.string(allocator);
-            defer allocator.free(str);
-
             try std.testing.expectEqualStrings(param, str);
         }
     }
 }
 
 test "call expression parsing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const input = "add(1, 2 * 3, 4 + 5)";
-    const allocator = std.testing.allocator;
 
-    var program = try testParseProgram(allocator, input);
-    defer program.node.deinit(allocator);
-
+    const program = try testParseProgram(allocator, input);
     const stmt = try expectExpressionStatement(program.statements.items[0]);
     try std.testing.expect(stmt.expression != null);
 
@@ -700,7 +660,10 @@ test "call expression parsing" {
 }
 
 test "function parameter parsing" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const tests = [_]struct {
         input: []const u8,
         expectedParams: []const []const u8,
@@ -711,9 +674,7 @@ test "function parameter parsing" {
     };
 
     for (tests) |tt| {
-        var program = try testParseProgram(allocator, tt.input);
-        defer program.node.deinit(allocator);
-
+        const program = try testParseProgram(allocator, tt.input);
         const stmt = try expectExpressionStatement(program.statements.items[0]);
         try std.testing.expect(stmt.expression != null);
 
@@ -726,12 +687,13 @@ test "function parameter parsing" {
 }
 
 test "function literal parsing" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const input = "fn (x, y) { x + y;}";
-    const allocator = std.testing.allocator;
 
-    var program = try testParseProgram(allocator, input);
-    defer program.node.deinit(allocator);
-
+    const program = try testParseProgram(allocator, input);
     try expectStatementLength(program, 1);
 
     const stmt = try expectExpressionStatement(program.statements.items[0]);
@@ -749,12 +711,13 @@ test "function literal parsing" {
 }
 
 test "if else expression" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const input = "if (a < b) { a } else { b }";
-    const allocator = std.testing.allocator;
 
-    var program = try testParseProgram(allocator, input);
-    defer program.node.deinit(allocator);
-
+    const program = try testParseProgram(allocator, input);
     try expectStatementLength(program, 1);
 
     const stmt = try expectExpressionStatement(program.statements.items[0]);
@@ -777,12 +740,13 @@ test "if else expression" {
 }
 
 test "if expression" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const input = "if (x < y) { x }";
-    const allocator = std.testing.allocator;
 
-    var program = try testParseProgram(allocator, input);
-    defer program.node.deinit(allocator);
-
+    const program = try testParseProgram(allocator, input);
     try expectStatementLength(program, 1);
 
     const stmt = try expectExpressionStatement(program.statements.items[0]);
@@ -800,7 +764,10 @@ test "if expression" {
 }
 
 test "operator precedence parsing" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const tests = [_]struct {
         input: []const u8,
         expected: []const u8,
@@ -834,17 +801,16 @@ test "operator precedence parsing" {
 
     for (tests) |tt| {
         var program = try testParseProgram(allocator, tt.input);
-        defer program.node.deinit(allocator);
-
         const actual = try program.node.string(allocator);
-        defer allocator.free(actual);
-
         try std.testing.expectEqualStrings(tt.expected, actual);
     }
 }
 
 test "parsing infix expressions" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const tests = [_]struct {
         input: []const u8,
         left_value: TestLiteral,
@@ -920,8 +886,7 @@ test "parsing infix expressions" {
     };
 
     for (tests) |tt| {
-        var program = try testParseProgram(allocator, tt.input);
-        defer program.node.deinit(allocator);
+        const program = try testParseProgram(allocator, tt.input);
         try expectStatementLength(program, 1);
 
         const stmt = try expectExpressionStatement(program.statements.items[0]);
@@ -931,7 +896,10 @@ test "parsing infix expressions" {
 }
 
 test "parsing prefix expressions" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const tests = [_]struct {
         input: []const u8,
         operator: []const u8,
@@ -944,10 +912,9 @@ test "parsing prefix expressions" {
     };
 
     for (tests) |tt| {
-        var program = try testParseProgram(allocator, tt.input);
-        defer program.node.deinit(allocator);
-
+        const program = try testParseProgram(allocator, tt.input);
         try expectStatementLength(program, 1);
+
         const stmt = try expectExpressionStatement(program.statements.items[0]);
         try std.testing.expect(stmt.expression != null);
         try expectPrefixExpression(stmt.expression.?, tt.operator, tt.iv);
@@ -955,12 +922,13 @@ test "parsing prefix expressions" {
 }
 
 test "boolean literal expr" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const input = "true";
-    const allocator = std.testing.allocator;
 
-    var program = try testParseProgram(allocator, input);
-    defer program.node.deinit(allocator);
-
+    const program = try testParseProgram(allocator, input);
     try expectStatementLength(program, 1);
 
     const stmt = try expectExpressionStatement(program.statements.items[0]);
@@ -969,12 +937,13 @@ test "boolean literal expr" {
 }
 
 test "integer literal expr" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const input = "5;";
-    const allocator = std.testing.allocator;
 
-    var program = try testParseProgram(allocator, input);
-    defer program.node.deinit(allocator);
-
+    const program = try testParseProgram(allocator, input);
     try expectStatementLength(program, 1);
 
     const stmt = try expectExpressionStatement(program.statements.items[0]);
@@ -983,12 +952,13 @@ test "integer literal expr" {
 }
 
 test "identifier" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const input = "foobar;";
-    const allocator = std.testing.allocator;
 
-    var program = try testParseProgram(allocator, input);
-    defer program.node.deinit(allocator);
-
+    const program = try testParseProgram(allocator, input);
     try expectStatementLength(program, 1);
 
     const stmt = try expectExpressionStatement(program.statements.items[0]);
@@ -997,7 +967,10 @@ test "identifier" {
 }
 
 test "return statement" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const tests = [_]struct {
         input: []const u8,
         expectedValue: TestLiteral,
@@ -1009,7 +982,6 @@ test "return statement" {
 
     for (tests) |tt| {
         var program = try testParseProgram(allocator, tt.input);
-        defer program.node.deinit(allocator);
         try expectStatementLength(program, 1);
 
         try std.testing.expectEqual(ast.NodeType.ReturnStatement, program.statements.items[0].node.getType());
@@ -1021,7 +993,10 @@ test "return statement" {
 }
 
 test "let statement" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
     const tests = [_]struct {
         input: []const u8,
         expectedIdentifier: []const u8,
@@ -1034,7 +1009,6 @@ test "let statement" {
 
     for (tests) |tt| {
         var program = try testParseProgram(allocator, tt.input);
-        defer program.node.deinit(allocator);
         try expectStatementLength(program, 1);
 
         try std.testing.expectEqual(ast.NodeType.LetStatement, program.statements.items[0].node.getType());

@@ -12,6 +12,6 @@ test {
 
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
-    try stdout.print("Welcome to Monkey REPL!\n", .{});
+    try stdout.print("Welcome to Zigma REPL!\n", .{});
     try repl.start();
 }

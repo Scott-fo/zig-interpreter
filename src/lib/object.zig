@@ -25,20 +25,25 @@ pub const Object = struct {
 
     pub const VTable = struct {
         objectTypeFn: *const fn (self: *const Self) ObjectType,
-        inspectFn: *const fn (self: *const Self, allocator: std.mem.Allocator) anyerror![]const u8,
-        deinitFn: *const fn (self: *Self, allocator: std.mem.Allocator) void,
+        inspectFn: *const fn (self: *const Self, arena: std.mem.Allocator) anyerror![]const u8,
+        deinitFn: *const fn (self: *Self, gpa: std.mem.Allocator) void,
+        cloneFn: *const fn (self: *const Self, gpa: std.mem.Allocator) anyerror!*Self,
     };
 
     pub fn objectType(self: *const Self) ObjectType {
         return self.vtable.objectTypeFn(self);
     }
 
-    pub fn inspect(self: *const Self, allocator: std.mem.Allocator) ![]const u8 {
-        return self.vtable.inspectFn(self, allocator);
+    pub fn inspect(self: *const Self, arena: std.mem.Allocator) ![]const u8 {
+        return self.vtable.inspectFn(self, arena);
     }
 
-    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-        return self.vtable.deinitFn(self, allocator);
+    pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
+        return self.vtable.deinitFn(self, gpa);
+    }
+
+    pub fn clone(self: *const Self, gpa: std.mem.Allocator) !*Self {
+        return self.vtable.cloneFn(self, gpa);
     }
 };
 
@@ -48,13 +53,9 @@ pub const ReturnValue = struct {
     object: Object,
     value: ?*Object,
 
-    const vtable = Object.VTable{
-        .objectTypeFn = objectType,
-        .inspectFn = inspect,
-        .deinitFn = deinit,
-    };
+    const vtable = Object.VTable{ .objectTypeFn = objectType, .inspectFn = inspect, .deinitFn = deinit, .cloneFn = clone };
 
-    pub fn init(allocator: std.mem.Allocator, value: *Object) !*Self {
+    pub fn init(allocator: std.mem.Allocator, value: ?*Object) !*Self {
         const rv = try allocator.create(Self);
         rv.* = .{
             .object = .{ .vtable = &vtable },
@@ -64,31 +65,33 @@ pub const ReturnValue = struct {
         return rv;
     }
 
-    pub fn deinit(object: *Object, allocator: std.mem.Allocator) void {
-        const self: *Self = @fieldParentPtr("object", object);
-        if (self.value) |v| {
-            v.deinit(allocator);
-        }
-        allocator.destroy(self);
-    }
-
     pub fn objectType(_: *const Object) ObjectType {
         return .ReturnValue;
     }
 
-    pub fn inspect(object: *const Object, allocator: std.mem.Allocator) ![]const u8 {
+    pub fn inspect(object: *const Object, arena: std.mem.Allocator) ![]const u8 {
         const self: *const Self = @fieldParentPtr("object", object);
         if (self.value == null) {
             return "";
         }
 
-        return self.value.?.inspect(allocator);
+        return self.value.?.inspect(arena);
     }
 
-    pub fn moveValue(self: *Self) ?*Object {
-        const value = self.value;
-        self.value = null;
-        return value;
+    pub fn deinit(object: *Object, gpa: std.mem.Allocator) void {
+        const self: *Self = @fieldParentPtr("object", object);
+        if (self.value) |v| {
+            v.deinit(gpa);
+        }
+        gpa.destroy(self);
+    }
+
+    pub fn clone(object: *const Object, gpa: std.mem.Allocator) !*Object {
+        const self: *const Self = @fieldParentPtr("object", object);
+        const cloned_value = if (self.value) |v| try v.clone(gpa) else null;
+
+        const cs = try Self.init(gpa, cloned_value);
+        return &cs.object;
     }
 };
 
@@ -102,6 +105,7 @@ pub const Integer = struct {
         .objectTypeFn = objectType,
         .inspectFn = inspect,
         .deinitFn = deinit,
+        .cloneFn = clone,
     };
 
     pub fn init(allocator: std.mem.Allocator, value: i64) !*Self {
@@ -114,18 +118,24 @@ pub const Integer = struct {
         return int;
     }
 
-    pub fn deinit(object: *Object, allocator: std.mem.Allocator) void {
+    pub fn deinit(object: *Object, gpa: std.mem.Allocator) void {
         const self: *Self = @fieldParentPtr("object", object);
-        allocator.destroy(self);
+        gpa.destroy(self);
     }
 
     pub fn objectType(_: *const Object) ObjectType {
         return .Integer;
     }
 
-    pub fn inspect(object: *const Object, allocator: std.mem.Allocator) ![]const u8 {
+    pub fn inspect(object: *const Object, arena: std.mem.Allocator) ![]const u8 {
         const self: *const Self = @fieldParentPtr("object", object);
-        return std.fmt.allocPrint(allocator, "{}", .{self.value});
+        return std.fmt.allocPrint(arena, "{}", .{self.value});
+    }
+
+    pub fn clone(object: *const Object, gpa: std.mem.Allocator) !*Object {
+        const self: *const Self = @fieldParentPtr("object", object);
+        const cs = try Self.init(gpa, self.value);
+        return &cs.object;
     }
 };
 
@@ -139,6 +149,7 @@ pub const Boolean = struct {
         .objectTypeFn = objectType,
         .inspectFn = inspect,
         .deinitFn = deinit,
+        .cloneFn = clone,
     };
 
     pub var TRUE: Self = .{
@@ -151,6 +162,8 @@ pub const Boolean = struct {
         .value = false,
     };
 
+    pub fn deinit(_: *Object, _: std.mem.Allocator) void {}
+
     pub fn get(v: bool) *Object {
         return switch (v) {
             true => &TRUE.object,
@@ -158,15 +171,18 @@ pub const Boolean = struct {
         };
     }
 
-    pub fn deinit(_: *Object, _: std.mem.Allocator) void {}
-
     pub fn objectType(_: *const Object) ObjectType {
         return .Boolean;
     }
 
-    pub fn inspect(object: *const Object, allocator: std.mem.Allocator) ![]const u8 {
+    pub fn inspect(object: *const Object, arena: std.mem.Allocator) ![]const u8 {
         const self: *const Self = @fieldParentPtr("object", object);
-        return std.fmt.allocPrint(allocator, "{}", .{self.value});
+        return std.fmt.allocPrint(arena, "{}", .{self.value});
+    }
+
+    pub fn clone(object: *const Object, _: std.mem.Allocator) !*Object {
+        const self: *const Self = @fieldParentPtr("object", object);
+        return Self.get(self.value);
     }
 };
 
@@ -180,6 +196,7 @@ pub const Error = struct {
         .objectTypeFn = objectType,
         .inspectFn = inspect,
         .deinitFn = deinit,
+        .cloneFn = clone,
     };
 
     pub fn init(allocator: std.mem.Allocator, message: []const u8) !*Self {
@@ -192,19 +209,27 @@ pub const Error = struct {
         return err;
     }
 
-    pub fn deinit(object: *Object, allocator: std.mem.Allocator) void {
+    pub fn deinit(object: *Object, gpa: std.mem.Allocator) void {
         const self: *Self = @fieldParentPtr("object", object);
-        allocator.free(self.message);
-        allocator.destroy(self);
+        gpa.free(self.message);
+        gpa.destroy(self);
     }
 
     pub fn objectType(_: *const Object) ObjectType {
         return .Error;
     }
 
-    pub fn inspect(object: *const Object, allocator: std.mem.Allocator) ![]const u8 {
+    pub fn inspect(object: *const Object, arena: std.mem.Allocator) ![]const u8 {
         const self: *const Self = @fieldParentPtr("object", object);
-        return std.fmt.allocPrint(allocator, "ERROR: {s}", .{self.message});
+        return std.fmt.allocPrint(arena, "ERROR: {s}", .{self.message});
+    }
+
+    pub fn clone(object: *const Object, gpa: std.mem.Allocator) !*Object {
+        const self: *const Self = @fieldParentPtr("object", object);
+        const cloned_message = try gpa.dupe(u8, self.message);
+
+        const cs = try Self.init(gpa, cloned_message);
+        return &cs.object;
     }
 };
 
@@ -217,24 +242,28 @@ pub const Null = struct {
         .objectTypeFn = objectType,
         .inspectFn = inspect,
         .deinitFn = deinit,
+        .cloneFn = clone,
     };
 
     pub var NULL: Self = .{
         .object = .{ .vtable = &vtable },
     };
 
+    pub fn deinit(_: *Object, _: std.mem.Allocator) void {}
+
     pub fn get() *Object {
         return &NULL.object;
     }
-
-    pub fn deinit(_: *Object, _: std.mem.Allocator) void {}
 
     pub fn objectType(_: *const Object) ObjectType {
         return .Null;
     }
 
-    pub fn inspect(_: *const Object, allocator: std.mem.Allocator) ![]const u8 {
-        // Annoying, but means that I can use a consistent allocator.free
-        return allocator.dupe(u8, "null");
+    pub fn inspect(_: *const Object, _: std.mem.Allocator) ![]const u8 {
+        return "null";
+    }
+
+    pub fn clone(_: *const Object, _: std.mem.Allocator) !*Object {
+        return Null.get();
     }
 };
