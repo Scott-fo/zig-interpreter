@@ -5,18 +5,41 @@ const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
 const ast = @import("ast.zig");
 
+fn newError(
+    allocator: std.mem.Allocator,
+    comptime format: []const u8,
+    args: anytype,
+) !*object.Object {
+    const message = try std.fmt.allocPrint(allocator, format, args);
+    errdefer allocator.free(message);
+
+    const e = try object.Error.init(allocator, message);
+    return &e.object;
+}
+
+fn isError(obj: ?*object.Object) bool {
+    if (obj != null) {
+        return obj.?.objectType() == object.ObjectType.Error;
+    }
+
+    return false;
+}
+
 fn isTruthy(obj: *object.Object) bool {
     return switch (obj.objectType()) {
-        .NullObj => false,
-        .BooleanObj => std.meta.eql(object.Boolean.get(true), obj),
+        .Null => false,
+        .Boolean => std.meta.eql(object.Boolean.get(true), obj),
         else => true,
     };
 }
 
-fn evalIfExpression(allocator: std.mem.Allocator, ie: *const ast.IfExpression) !?*object.Object {
+fn evalIfExpression(
+    allocator: std.mem.Allocator,
+    ie: *const ast.IfExpression,
+) !?*object.Object {
     const condition = try eval(&ie.condition.node, allocator);
-    if (condition == null) {
-        return object.Null.get();
+    if (isError(condition)) {
+        return condition;
     }
     defer condition.?.deinit(allocator);
 
@@ -29,7 +52,12 @@ fn evalIfExpression(allocator: std.mem.Allocator, ie: *const ast.IfExpression) !
     }
 }
 
-fn evalIntegerInfixExpression(allocator: std.mem.Allocator, operator: []const u8, left: *object.Object, right: *object.Object) !*object.Object {
+fn evalIntegerInfixExpression(
+    allocator: std.mem.Allocator,
+    operator: []const u8,
+    left: *object.Object,
+    right: *object.Object,
+) !*object.Object {
     const l: *object.Integer = @fieldParentPtr("object", left);
     const r: *object.Integer = @fieldParentPtr("object", right);
 
@@ -56,7 +84,11 @@ fn evalIntegerInfixExpression(allocator: std.mem.Allocator, operator: []const u8
             },
             '<' => object.Boolean.get(lv < rv),
             '>' => object.Boolean.get(lv > rv),
-            else => object.Null.get(),
+            else => newError(
+                allocator,
+                "unknown operator: {s} {c} {s}",
+                .{ left.objectType().toString(), operator, right.objectType().toString() },
+            ),
         };
     }
 
@@ -68,11 +100,30 @@ fn evalIntegerInfixExpression(allocator: std.mem.Allocator, operator: []const u8
         return object.Boolean.get(lv != rv);
     }
 
-    return object.Null.get();
+    return newError(
+        allocator,
+        "unknown operator: {s} {s} {s}",
+        .{ left.objectType().toString(), operator, right.objectType().toString() },
+    );
 }
 
-fn evalInfixExpression(allocator: std.mem.Allocator, operator: []const u8, left: *object.Object, right: *object.Object) !*object.Object {
-    if (left.objectType() == object.ObjectType.IntegerObj and right.objectType() == object.ObjectType.IntegerObj) {
+fn evalInfixExpression(
+    allocator: std.mem.Allocator,
+    operator: []const u8,
+    left: *object.Object,
+    right: *object.Object,
+) !*object.Object {
+    if (left.objectType() != right.objectType()) {
+        return newError(
+            allocator,
+            "type mismatch: {s} {s} {s}",
+            .{ left.objectType().toString(), operator, right.objectType().toString() },
+        );
+    }
+
+    if (left.objectType() == object.ObjectType.Integer and
+        right.objectType() == object.ObjectType.Integer)
+    {
         return evalIntegerInfixExpression(allocator, operator, left, right);
     }
 
@@ -84,12 +135,19 @@ fn evalInfixExpression(allocator: std.mem.Allocator, operator: []const u8, left:
         return object.Boolean.get(!std.meta.eql(left, right));
     }
 
-    return object.Null.get();
+    return newError(
+        allocator,
+        "unknown operator: {s} {s} {s}",
+        .{ left.objectType().toString(), operator, right.objectType().toString() },
+    );
 }
 
-fn evalMinusPrefixOperatorExpression(allocator: std.mem.Allocator, right: *object.Object) !*object.Object {
-    if (right.objectType() != object.ObjectType.IntegerObj) {
-        return object.Null.get();
+fn evalMinusPrefixOperatorExpression(
+    allocator: std.mem.Allocator,
+    right: *object.Object,
+) !*object.Object {
+    if (right.objectType() != object.ObjectType.Integer) {
+        return newError(allocator, "unknown operator: -{s}", .{right.objectType().toString()});
     }
 
     const i: *object.Integer = @fieldParentPtr("object", right);
@@ -99,27 +157,37 @@ fn evalMinusPrefixOperatorExpression(allocator: std.mem.Allocator, right: *objec
 
 fn evalBangOperatorExpression(right: *object.Object) *object.Object {
     return switch (right.objectType()) {
-        .BooleanObj => {
+        .Boolean => {
             const boo: *object.Boolean = @fieldParentPtr("object", right);
             return switch (boo.value) {
                 true => object.Boolean.get(false),
                 false => object.Boolean.get(true),
             };
         },
-        .NullObj => object.Boolean.get(true),
+        .Null => object.Boolean.get(true),
         else => object.Boolean.get(false),
     };
 }
 
-fn evalPrefixExpression(allocator: std.mem.Allocator, operator: u8, right: *object.Object) !*object.Object {
+fn evalPrefixExpression(
+    allocator: std.mem.Allocator,
+    operator: u8,
+    right: *object.Object,
+) !*object.Object {
     return switch (operator) {
         '!' => evalBangOperatorExpression(right),
         '-' => evalMinusPrefixOperatorExpression(allocator, right),
-        else => object.Null.get(),
+        else => newError(allocator, "unknown operator: {c}{s}", .{
+            operator,
+            right.objectType().toString(),
+        }),
     };
 }
 
-fn evalProgram(stmts: std.ArrayList(*ast.Statement), allocator: std.mem.Allocator) anyerror!?*object.Object {
+fn evalProgram(
+    stmts: std.ArrayList(*ast.Statement),
+    allocator: std.mem.Allocator,
+) anyerror!?*object.Object {
     var result: ?*object.Object = null;
 
     for (stmts.items) |stmt| {
@@ -132,25 +200,40 @@ fn evalProgram(stmts: std.ArrayList(*ast.Statement), allocator: std.mem.Allocato
             return null;
         }
 
-        if (result.?.objectType() == object.ObjectType.ReturnValueObj) {
+        if (result.?.objectType() == object.ObjectType.ReturnValue) {
             const rv: *object.ReturnValue = @fieldParentPtr("object", result.?);
             defer rv.object.deinit(allocator);
 
             return rv.moveValue();
+        }
+
+        if (result.?.objectType() == object.ObjectType.Error) {
+            return result.?;
         }
     }
 
     return result;
 }
 
-fn evalBlockStatement(stmts: std.ArrayList(*ast.Statement), allocator: std.mem.Allocator) !?*object.Object {
+fn evalBlockStatement(
+    stmts: std.ArrayList(*ast.Statement),
+    allocator: std.mem.Allocator,
+) !?*object.Object {
     var result: ?*object.Object = null;
 
     for (stmts.items) |stmt| {
         result = try eval(&stmt.node, allocator);
-        if (result != null and result.?.objectType() == object.ObjectType.ReturnValueObj) {
-            const rv: *object.ReturnValue = @fieldParentPtr("object", result.?);
-            return &rv.object;
+        if (result != null) {
+            const rt = result.?.objectType();
+            if (rt == object.ObjectType.Error) {
+                const rv: *object.Error = @fieldParentPtr("object", result.?);
+                return &rv.object;
+            }
+
+            if (rt == object.ObjectType.ReturnValue) {
+                const rv: *object.ReturnValue = @fieldParentPtr("object", result.?);
+                return &rv.object;
+            }
         }
     }
 
@@ -192,25 +275,27 @@ pub fn eval(node: *const ast.Node, allocator: std.mem.Allocator) !?*object.Objec
             const pe: *const ast.PrefixExpression = @fieldParentPtr("expression", expression);
 
             const right = try eval(&pe.right.node, allocator);
-            if (right == null) {
-                return null;
+            if (isError(right)) {
+                return right;
             }
             defer right.?.deinit(allocator);
+
             std.debug.assert(pe.operator.len == 1);
             return evalPrefixExpression(allocator, pe.operator[0], right.?);
         },
         .InfixExpression => {
             const expression: *const ast.Expression = @fieldParentPtr("node", node);
             const ie: *const ast.InfixExpression = @fieldParentPtr("expression", expression);
+
             const left = try eval(&ie.left.node, allocator);
-            if (left == null) {
-                return null;
+            if (isError(left)) {
+                return left;
             }
             defer left.?.deinit(allocator);
 
             const right = try eval(&ie.right.node, allocator);
-            if (right == null) {
-                return null;
+            if (isError(right)) {
+                return right;
             }
             defer right.?.deinit(allocator);
 
@@ -233,8 +318,8 @@ pub fn eval(node: *const ast.Node, allocator: std.mem.Allocator) !?*object.Objec
             }
 
             const val = try eval(&rs.value.?.node, allocator);
-            if (val == null) {
-                return null;
+            if (isError(val)) {
+                return val;
             }
 
             const rv = try object.ReturnValue.init(allocator, val.?);
@@ -262,15 +347,44 @@ fn testEval(allocator: std.mem.Allocator, input: []const u8) !?*object.Object {
 }
 
 fn testIntegerObject(obj: *object.Object, expected: i64) !void {
-    try std.testing.expectEqual(object.ObjectType.IntegerObj, obj.objectType());
+    try std.testing.expectEqual(object.ObjectType.Integer, obj.objectType());
     const i: *const object.Integer = @ptrCast(obj);
     try std.testing.expectEqual(expected, i.value);
 }
 
 fn testBooleanObject(obj: *object.Object, expected: bool) !void {
-    try std.testing.expectEqual(object.ObjectType.BooleanObj, obj.objectType());
+    try std.testing.expectEqual(object.ObjectType.Boolean, obj.objectType());
     const b: *const object.Boolean = @ptrCast(obj);
     try std.testing.expectEqual(expected, b.value);
+}
+
+fn testErrorObject(obj: *object.Object, expected: []const u8) !void {
+    try std.testing.expectEqual(object.ObjectType.Error, obj.objectType());
+    const e: *const object.Error = @ptrCast(obj);
+    try std.testing.expectEqualStrings(expected, e.message);
+}
+
+test "error handling" {
+    const allocator = std.testing.allocator;
+    const tests = [_]struct {
+        input: []const u8,
+        expected: []const u8,
+    }{
+        .{ .input = "5 + true", .expected = "type mismatch: INTEGER + BOOLEAN" },
+        .{ .input = "5 + true; 5;", .expected = "type mismatch: INTEGER + BOOLEAN" },
+        .{ .input = "-true", .expected = "unknown operator: -BOOLEAN" },
+        .{ .input = "true + false;", .expected = "unknown operator: BOOLEAN + BOOLEAN" },
+        .{ .input = "5; true + false; 5", .expected = "unknown operator: BOOLEAN + BOOLEAN" },
+        .{ .input = "if (10 > 1) { true + false; }", .expected = "unknown operator: BOOLEAN + BOOLEAN" },
+    };
+
+    for (tests) |tt| {
+        const ev = try testEval(allocator, tt.input);
+        try std.testing.expect(ev != null);
+        defer ev.?.deinit(allocator);
+
+        try testErrorObject(ev.?, tt.expected);
+    }
 }
 
 test "return statements" {
@@ -316,7 +430,7 @@ test "if else expressions" {
         defer ev.?.deinit(allocator);
 
         if (tt.empty) {
-            try std.testing.expectEqual(object.ObjectType.NullObj, ev.?.objectType());
+            try std.testing.expectEqual(object.ObjectType.Null, ev.?.objectType());
             const n: *object.Null = @ptrCast(ev.?);
             try std.testing.expect(std.meta.eql(object.Null.get(), &n.object));
         } else {
@@ -362,7 +476,7 @@ test "invalid negation" {
         try std.testing.expect(ev != null);
         defer ev.?.deinit(allocator);
 
-        try std.testing.expectEqual(object.ObjectType.NullObj, ev.?.objectType());
+        try std.testing.expectEqual(object.ObjectType.Error, ev.?.objectType());
     }
 }
 

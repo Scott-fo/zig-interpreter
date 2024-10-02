@@ -1,10 +1,21 @@
 const std = @import("std");
 
 pub const ObjectType = enum {
-    IntegerObj,
-    BooleanObj,
-    NullObj,
-    ReturnValueObj,
+    Integer,
+    Boolean,
+    Null,
+    ReturnValue,
+    Error,
+
+    pub fn toString(o: ObjectType) []const u8 {
+        return switch (o) {
+            .Integer => "INTEGER",
+            .Boolean => "BOOLEAN",
+            .Null => "NULL",
+            .ReturnValue => "RETURN VALUE",
+            .Error => "ERROR",
+        };
+    }
 };
 
 pub const Object = struct {
@@ -62,7 +73,7 @@ pub const ReturnValue = struct {
     }
 
     pub fn objectType(_: *const Object) ObjectType {
-        return .ReturnValueObj;
+        return .ReturnValue;
     }
 
     pub fn inspect(object: *const Object, allocator: std.mem.Allocator) ![]const u8 {
@@ -109,7 +120,7 @@ pub const Integer = struct {
     }
 
     pub fn objectType(_: *const Object) ObjectType {
-        return .IntegerObj;
+        return .Integer;
     }
 
     pub fn inspect(object: *const Object, allocator: std.mem.Allocator) ![]const u8 {
@@ -150,12 +161,50 @@ pub const Boolean = struct {
     pub fn deinit(_: *Object, _: std.mem.Allocator) void {}
 
     pub fn objectType(_: *const Object) ObjectType {
-        return .BooleanObj;
+        return .Boolean;
     }
 
     pub fn inspect(object: *const Object, allocator: std.mem.Allocator) ![]const u8 {
         const self: *const Self = @fieldParentPtr("object", object);
         return std.fmt.allocPrint(allocator, "{}", .{self.value});
+    }
+};
+
+pub const Error = struct {
+    const Self = @This();
+
+    object: Object,
+    message: []const u8,
+
+    const vtable = Object.VTable{
+        .objectTypeFn = objectType,
+        .inspectFn = inspect,
+        .deinitFn = deinit,
+    };
+
+    pub fn init(allocator: std.mem.Allocator, message: []const u8) !*Self {
+        const err = try allocator.create(Self);
+        err.* = .{
+            .object = .{ .vtable = &vtable },
+            .message = message,
+        };
+
+        return err;
+    }
+
+    pub fn deinit(object: *Object, allocator: std.mem.Allocator) void {
+        const self: *Self = @fieldParentPtr("object", object);
+        allocator.free(self.message);
+        allocator.destroy(self);
+    }
+
+    pub fn objectType(_: *const Object) ObjectType {
+        return .Error;
+    }
+
+    pub fn inspect(object: *const Object, allocator: std.mem.Allocator) ![]const u8 {
+        const self: *const Self = @fieldParentPtr("object", object);
+        return std.fmt.allocPrint(allocator, "ERROR: {s}", .{self.message});
     }
 };
 
@@ -181,7 +230,7 @@ pub const Null = struct {
     pub fn deinit(_: *Object, _: std.mem.Allocator) void {}
 
     pub fn objectType(_: *const Object) ObjectType {
-        return .NullObj;
+        return .Null;
     }
 
     pub fn inspect(_: *const Object, allocator: std.mem.Allocator) ![]const u8 {
