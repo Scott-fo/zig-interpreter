@@ -354,6 +354,17 @@ pub fn eval(
             const id: *const ast.Identifier = @fieldParentPtr("expression", expression);
             return evalIdentifier(arena, env, id);
         },
+        .FunctionLiteral => {
+            const expression: *const ast.Expression = @fieldParentPtr("node", node);
+            const f: *const ast.FunctionLiteral = @fieldParentPtr("expression", expression);
+            const params = f.parameters;
+            const body = f.body;
+
+            const func = try object.Function.init(arena, env, body);
+            func.parameters = params;
+
+            return &func.object;
+        },
         else => null,
     };
 }
@@ -391,6 +402,22 @@ fn testErrorObject(obj: *object.Object, expected: []const u8) !void {
     try std.testing.expectEqual(object.ObjectType.Error, obj.objectType());
     const e: *const object.Error = @ptrCast(obj);
     try std.testing.expectEqualStrings(expected, e.message);
+}
+
+test "function object" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input = "fn(x) {x + 2}";
+    const ev = try testEval(allocator, input);
+    try std.testing.expect(ev != null);
+
+    try std.testing.expectEqual(object.ObjectType.Function, ev.?.objectType());
+    const f: *const object.Function = @ptrCast(ev.?);
+    try std.testing.expectEqual(f.parameters.items.len, 1);
+    try std.testing.expectEqualStrings("x", try f.parameters.items[0].expression.node.string(allocator));
+    try std.testing.expectEqualStrings("(x + 2)", try f.body.node.string(allocator));
 }
 
 test "let statements" {

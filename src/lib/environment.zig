@@ -34,15 +34,20 @@ pub const Environment = struct {
 
     pub fn set(self: *Self, name: []const u8, val: *object.Object) !*object.Object {
         const owned_name = try self.allocator.dupe(u8, name);
-        const cloned_val = try val.clone(self.allocator);
 
-        const gop = try self.store.getOrPut(owned_name);
-        if (gop.found_existing) {
-            self.allocator.free(owned_name);
-            gop.value_ptr.*.deinit(self.allocator);
-        }
+        // To just work with the single arena for now.
+        try self.store.put(owned_name, val);
 
-        gop.value_ptr.* = cloned_val;
+        // const cloned_val = try val.clone(self.allocator);
+
+        // const gop = try self.store.getOrPut(owned_name);
+        // if (gop.found_existing) {
+        //  self.allocator.free(owned_name);
+        //  gop.value_ptr.*.deinit(self.allocator);
+        // }
+
+        // gop.value_ptr.* = cloned_val;
+        //
         return val;
     }
 };

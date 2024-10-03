@@ -21,10 +21,15 @@ pub const Node = struct {
     vtable: *const VTable,
 
     pub const VTable = struct {
+        deinitFn: *const fn (self: *Node, allocator: std.mem.Allocator) void,
         tokenLiteralFn: *const fn (self: *const Node) []const u8,
         stringFn: *const fn (self: *const Node, arena: std.mem.Allocator) anyerror![]const u8,
         getTypeFn: *const fn (self: *const Node) NodeType,
     };
+
+    pub fn deinit(self: *Node, allocator: std.mem.Allocator) void {
+        self.vtable.deinitFn(self, allocator);
+    }
 
     pub fn tokenLiteral(self: *const Node) []const u8 {
         return self.vtable.tokenLiteralFn(self);
@@ -54,6 +59,7 @@ pub const Program = struct {
     statements: std.ArrayList(*Statement),
 
     const vtable = Node.VTable{
+        .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
         .getTypeFn = getType,
@@ -67,6 +73,15 @@ pub const Program = struct {
         };
 
         return program;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const self: *Self = @fieldParentPtr("node", node);
+        for (self.statements.items) |stmt| {
+            stmt.node.deinit(allocator);
+        }
+        self.statements.deinit();
+        allocator.destroy(self);
     }
 
     pub fn getType(_: *const Node) NodeType {
@@ -104,6 +119,7 @@ pub const BlockStatement = struct {
     statements: std.ArrayList(*Statement),
 
     const vtable = Node.VTable{
+        .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
         .getTypeFn = getType,
@@ -118,6 +134,15 @@ pub const BlockStatement = struct {
         };
 
         return bs;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const self: *Self = @fieldParentPtr("node", node);
+        for (self.statements.items) |stmt| {
+            stmt.node.deinit(allocator);
+        }
+        self.statements.deinit();
+        allocator.destroy(self);
     }
 
     pub fn getType(_: *const Node) NodeType {
@@ -155,6 +180,7 @@ pub const ExpressionStatement = struct {
     expression: ?*Expression,
 
     const vtable = Node.VTable{
+        .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
         .getTypeFn = getType,
@@ -173,6 +199,15 @@ pub const ExpressionStatement = struct {
         };
 
         return stmt;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const statement: *Statement = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("statement", statement);
+        if (self.expression) |expression| {
+            expression.node.deinit(allocator);
+        }
+        allocator.destroy(self);
     }
 
     pub fn getType(_: *const Node) NodeType {
@@ -205,6 +240,7 @@ pub const ReturnStatement = struct {
     value: ?*Expression,
 
     const vtable = Node.VTable{
+        .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
         .getTypeFn = getType,
@@ -223,6 +259,15 @@ pub const ReturnStatement = struct {
         };
 
         return stmt;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const statement: *Statement = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("statement", statement);
+        if (self.value) |value| {
+            value.node.deinit(allocator);
+        }
+        allocator.destroy(self);
     }
 
     pub fn getType(_: *const Node) NodeType {
@@ -262,6 +307,7 @@ pub const LetStatement = struct {
     value: ?*Expression,
 
     const vtable = Node.VTable{
+        .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
         .getTypeFn = getType,
@@ -282,6 +328,16 @@ pub const LetStatement = struct {
         };
 
         return let_stmt;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const statement: *Statement = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("statement", statement);
+        self.name.expression.node.deinit(allocator);
+        if (self.value) |value| {
+            value.node.deinit(allocator);
+        }
+        allocator.destroy(self);
     }
 
     pub fn getType(_: *const Node) NodeType {
@@ -326,6 +382,7 @@ pub const FunctionLiteral = struct {
     parameters: std.ArrayList(*Identifier),
 
     const vtable = Node.VTable{
+        .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
         .getTypeFn = getType,
@@ -345,6 +402,17 @@ pub const FunctionLiteral = struct {
         };
 
         return fl;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const expression: *Expression = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("expression", expression);
+        self.body.node.deinit(allocator);
+        for (self.parameters.items) |stmt| {
+            stmt.expression.node.deinit(allocator);
+        }
+        self.parameters.deinit();
+        allocator.destroy(self);
     }
 
     pub fn getType(_: *const Node) NodeType {
@@ -393,6 +461,7 @@ pub const CallExpression = struct {
     arguments: std.ArrayList(*Expression),
 
     const vtable = Node.VTable{
+        .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
         .getTypeFn = getType,
@@ -412,6 +481,17 @@ pub const CallExpression = struct {
         };
 
         return expr;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const expression: *Expression = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("expression", expression);
+        self.function.node.deinit(allocator);
+        for (self.arguments.items) |arg| {
+            arg.node.deinit(allocator);
+        }
+        self.arguments.deinit();
+        allocator.destroy(self);
     }
 
     pub fn getType(_: *const Node) NodeType {
@@ -460,6 +540,7 @@ pub const IfExpression = struct {
     alternative: ?*BlockStatement,
 
     const vtable = Node.VTable{
+        .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
         .getTypeFn = getType,
@@ -482,6 +563,17 @@ pub const IfExpression = struct {
         };
 
         return expr;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const expression: *Expression = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("expression", expression);
+        self.condition.node.deinit(allocator);
+        self.consequence.node.deinit(allocator);
+        if (self.alternative) |alt| {
+            alt.node.deinit(allocator);
+        }
+        allocator.destroy(self);
     }
 
     pub fn getType(_: *const Node) NodeType {
@@ -528,6 +620,7 @@ pub const InfixExpression = struct {
     operator: []const u8,
 
     const vtable = Node.VTable{
+        .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
         .getTypeFn = getType,
@@ -550,6 +643,14 @@ pub const InfixExpression = struct {
         };
 
         return expr;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const expression: *Expression = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("expression", expression);
+        self.right.node.deinit(allocator);
+        self.left.node.deinit(allocator);
+        allocator.destroy(self);
     }
 
     pub fn getType(_: *const Node) NodeType {
@@ -592,6 +693,7 @@ pub const PrefixExpression = struct {
     right: *Expression,
 
     const vtable = Node.VTable{
+        .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
         .getTypeFn = getType,
@@ -612,6 +714,13 @@ pub const PrefixExpression = struct {
         };
 
         return expr;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const expression: *Expression = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("expression", expression);
+        self.right.node.deinit(allocator);
+        allocator.destroy(self);
     }
 
     pub fn getType(_: *const Node) NodeType {
@@ -649,6 +758,7 @@ pub const Boolean = struct {
     value: bool,
 
     const vtable = Node.VTable{
+        .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
         .getTypeFn = getType,
@@ -667,6 +777,12 @@ pub const Boolean = struct {
         };
 
         return expr;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const expression: *Expression = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("expression", expression);
+        allocator.destroy(self);
     }
 
     pub fn getType(_: *const Node) NodeType {
@@ -692,6 +808,7 @@ pub const IntegerLiteral = struct {
     value: ?i64,
 
     const vtable = Node.VTable{
+        .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
         .getTypeFn = getType,
@@ -710,6 +827,12 @@ pub const IntegerLiteral = struct {
         };
 
         return expr;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const expression: *Expression = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("expression", expression);
+        allocator.destroy(self);
     }
 
     pub fn getType(_: *const Node) NodeType {
@@ -735,6 +858,7 @@ pub const Identifier = struct {
     value: []const u8,
 
     const vtable = Node.VTable{
+        .deinitFn = deinit,
         .tokenLiteralFn = tokenLiteral,
         .stringFn = string,
         .getTypeFn = getType,
@@ -753,6 +877,12 @@ pub const Identifier = struct {
         };
 
         return identifier;
+    }
+
+    pub fn deinit(node: *Node, allocator: std.mem.Allocator) void {
+        const expression: *Expression = @fieldParentPtr("node", node);
+        const self: *Self = @fieldParentPtr("expression", expression);
+        allocator.destroy(self);
     }
 
     pub fn getType(_: *const Node) NodeType {

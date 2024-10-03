@@ -1,4 +1,6 @@
 const std = @import("std");
+const ast = @import("ast.zig");
+const environment = @import("environment.zig");
 
 pub const ObjectType = enum {
     Integer,
@@ -6,6 +8,7 @@ pub const ObjectType = enum {
     Null,
     ReturnValue,
     Error,
+    Function,
 
     pub fn toString(o: ObjectType) []const u8 {
         return switch (o) {
@@ -14,6 +17,7 @@ pub const ObjectType = enum {
             .Null => "NULL",
             .ReturnValue => "RETURN VALUE",
             .Error => "ERROR",
+            .Function => "FUNCTION",
         };
     }
 };
@@ -264,6 +268,89 @@ pub const Null = struct {
     }
 
     pub fn clone(_: *const Object, _: std.mem.Allocator) !*Object {
+        return Null.get();
+    }
+};
+
+pub const Function = struct {
+    const Self = @This();
+
+    object: Object,
+    parameters: std.ArrayList(*ast.Identifier),
+    body: *ast.BlockStatement,
+    env: *environment.Environment,
+
+    const vtable = Object.VTable{
+        .objectTypeFn = objectType,
+        .inspectFn = inspect,
+        .deinitFn = deinit,
+        .cloneFn = clone,
+    };
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        env: *environment.Environment,
+        body: *ast.BlockStatement,
+    ) !*Self {
+        const f = try allocator.create(Self);
+        f.* = .{
+            .object = .{ .vtable = &vtable },
+            .env = env,
+            .body = body,
+            .parameters = std.ArrayList(*ast.Identifier).init(allocator),
+        };
+
+        return f;
+    }
+
+    pub fn deinit(object: *Object, gpa: std.mem.Allocator) void {
+        const self: *Self = @fieldParentPtr("object", object);
+
+        self.body.node.deinit(gpa);
+        for (self.parameters.items) |param| {
+            param.expression.node.deinit(gpa);
+        }
+
+        gpa.destroy(self);
+    }
+
+    pub fn objectType(_: *const Object) ObjectType {
+        return .Function;
+    }
+
+    pub fn inspect(object: *const Object, arena: std.mem.Allocator) ![]const u8 {
+        const self: *const Self = @fieldParentPtr("object", object);
+
+        var buffer = std.ArrayList(u8).init(arena);
+        try buffer.appendSlice("fn");
+        try buffer.append('(');
+
+        for (self.parameters.items, 0..) |param, i| {
+            const param_str = try param.expression.node.string(arena);
+
+            if (i != 0) {
+                try buffer.append(',');
+            }
+            try buffer.appendSlice(param_str);
+        }
+
+        try buffer.append(')');
+        try buffer.append('\n');
+
+        const body_str = try self.body.node.string(arena);
+        try buffer.appendSlice(body_str);
+        try buffer.append('\n');
+
+        return buffer.toOwnedSlice();
+    }
+
+    pub fn clone(object: *const Object, gpa: std.mem.Allocator) !*Object {
+        // Need to implement clone methods for my ast if i am going to use this
+        // approach with a gpa and an arena.
+        // For now, using just arena to get the whole thing working, then we can
+        // come back to this.
+        _ = object;
+        _ = gpa;
         return Null.get();
     }
 };
