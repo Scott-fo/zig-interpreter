@@ -32,6 +32,67 @@ fn isTruthy(obj: *object.Object) bool {
     };
 }
 
+fn applyFunction(arena: std.mem.Allocator, func: *object.Object, args: std.ArrayList(*object.Object)) !?*object.Object {
+    if (func.objectType() != object.ObjectType.Function) {
+        return newError(arena, "not a function: {s}", .{func.objectType().toString()});
+    }
+
+    const function: *const object.Function = @fieldParentPtr("object", func);
+    const extendedEnv = try extendFunctionEnv(arena, function, args);
+    const evaluated = try eval(arena, &function.body.node, extendedEnv);
+    if (evaluated == null) {
+        return null;
+    }
+
+    return unwrapReturnValue(evaluated.?);
+}
+
+fn extendFunctionEnv(
+    arena: std.mem.Allocator,
+    func: *const object.Function,
+    args: std.ArrayList(*object.Object),
+) !*environment.Environment {
+    const env = try environment.Environment.newEnclosedEnvironment(arena, func.env);
+
+    for (0.., func.parameters.items) |idx, item| {
+        _ = try env.set(item.value, args.items[idx]);
+    }
+
+    return env;
+}
+
+fn unwrapReturnValue(obj: *object.Object) ?*object.Object {
+    if (obj.objectType() == object.ObjectType.ReturnValue) {
+        const rv: *object.ReturnValue = @fieldParentPtr("object", obj);
+        return rv.value;
+    }
+
+    return obj;
+}
+
+fn evalExpressions(
+    arena: std.mem.Allocator,
+    exps: std.ArrayList(*ast.Expression),
+    env: *environment.Environment,
+) anyerror!std.ArrayList(*object.Object) {
+    var result = std.ArrayList(*object.Object).init(arena);
+    for (exps.items) |exp| {
+        const evaluated = try eval(arena, &exp.node, env);
+        if (isError(evaluated)) {
+            // Need to deinit the result list here.
+            var errList = std.ArrayList(*object.Object).init(arena);
+            try errList.append(evaluated.?);
+            return errList;
+        }
+
+        if (evaluated != null) {
+            try result.append(evaluated.?);
+        }
+    }
+
+    return result;
+}
+
 fn evalIfExpression(
     arena: std.mem.Allocator,
     env: *environment.Environment,
@@ -365,7 +426,22 @@ pub fn eval(
 
             return &func.object;
         },
-        else => null,
+        .CallExpression => {
+            const expression: *const ast.Expression = @fieldParentPtr("node", node);
+            const ce: *const ast.CallExpression = @fieldParentPtr("expression", expression);
+
+            const f = try eval(arena, &ce.function.node, env);
+            if (isError(f)) {
+                return f;
+            }
+
+            const args = try evalExpressions(arena, ce.arguments, env);
+            if (args.items.len == 1 and isError(args.items[0])) {
+                return args.items[0];
+            }
+
+            return applyFunction(arena, f.?, args);
+        },
     };
 }
 
@@ -402,6 +478,50 @@ fn testErrorObject(obj: *object.Object, expected: []const u8) !void {
     try std.testing.expectEqual(object.ObjectType.Error, obj.objectType());
     const e: *const object.Error = @ptrCast(obj);
     try std.testing.expectEqualStrings(expected, e.message);
+}
+
+test "closures" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const input =
+        \\let newAdder = fn(x) {
+        \\  fn(y) { x + y };
+        \\};
+        \\
+        \\let addTwo = newAdder(2);
+        \\addTwo(2);
+    ;
+
+    const ev = try testEval(allocator, input);
+    try std.testing.expect(ev != null);
+    try testIntegerObject(ev.?, 4);
+}
+
+test "function application" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const tests = [_]struct {
+        input: []const u8,
+        expected: i64,
+    }{
+        .{ .input = "let identity = fn(x) { x; }; identity(5);", .expected = 5 },
+        .{ .input = "let identity = fn(x) { return x; }; identity(5);", .expected = 5 },
+        .{ .input = "let double = fn(x) { x * 2; }; double(5);", .expected = 10 },
+        .{ .input = "let add = fn(x, y) { x + y; }; add(5, 3);", .expected = 8 },
+        .{ .input = "let add = fn(x, y) { x + y; }; add(5 + 3, add(5, 3));", .expected = 16 },
+        .{ .input = "let multiply = fn(x, y) { x * y; }; multiply(2, 3);", .expected = 6 },
+        .{ .input = "fn(x) { x; }(5)", .expected = 5 },
+    };
+
+    for (tests) |tt| {
+        const ev = try testEval(allocator, tt.input);
+        try std.testing.expect(ev != null);
+        try testIntegerObject(ev.?, tt.expected);
+    }
 }
 
 test "function object" {

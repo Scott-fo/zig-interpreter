@@ -4,14 +4,23 @@ const std = @import("std");
 pub const Environment = struct {
     const Self = @This();
 
-    store: std.StringHashMap(*object.Object),
     allocator: std.mem.Allocator,
+    store: std.StringHashMap(*object.Object),
+    outer: ?*Self,
+
+    pub fn newEnclosedEnvironment(allocator: std.mem.Allocator, outer: *Self) !*Self {
+        var e = try Self.init(allocator);
+        e.outer = outer;
+
+        return e;
+    }
 
     pub fn init(allocator: std.mem.Allocator) !*Self {
         const e = try allocator.create(Self);
         e.* = .{
-            .store = std.StringHashMap(*object.Object).init(allocator),
             .allocator = allocator,
+            .store = std.StringHashMap(*object.Object).init(allocator),
+            .outer = null,
         };
 
         return e;
@@ -29,25 +38,18 @@ pub const Environment = struct {
     }
 
     pub fn get(self: *Self, name: []const u8) ?*object.Object {
-        return self.store.get(name);
+        var obj = self.store.get(name);
+        if (obj == null and self.outer != null) {
+            obj = self.outer.?.get(name);
+        }
+
+        return obj;
     }
 
     pub fn set(self: *Self, name: []const u8, val: *object.Object) !*object.Object {
         const owned_name = try self.allocator.dupe(u8, name);
-
-        // To just work with the single arena for now.
         try self.store.put(owned_name, val);
 
-        // const cloned_val = try val.clone(self.allocator);
-
-        // const gop = try self.store.getOrPut(owned_name);
-        // if (gop.found_existing) {
-        //  self.allocator.free(owned_name);
-        //  gop.value_ptr.*.deinit(self.allocator);
-        // }
-
-        // gop.value_ptr.* = cloned_val;
-        //
         return val;
     }
 };

@@ -873,7 +873,7 @@ pub const Identifier = struct {
         identifier.* = .{
             .expression = .{ .node = .{ .vtable = &vtable } },
             .token = tok,
-            .value = value,
+            .value = try arena.dupe(u8, value),
         };
 
         return identifier;
